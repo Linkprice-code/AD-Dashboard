@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADS PERFORMANCE DASHBOARD</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ============ 로그인 화면 ============ -->
+<section id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-mark">AD</div>
+      <h1 class="login-title">ADS PERFORMANCE DASHBOARD</h1>
+      <p class="login-subtitle">광고주 전용 성과 대시보드</p>
+    </div>
+
+    <form id="loginForm" class="login-form" autocomplete="off">
+      <label for="passwordInput" class="login-label">비밀번호</label>
+      <input
+        type="password"
+        id="passwordInput"
+        class="login-input"
+        placeholder="비밀번호를 입력하세요"
+        autocomplete="off"
+        required
+      >
+      <p id="loginError" class="login-error" hidden>비밀번호가 올바르지 않습니다.</p>
+      <button type="submit" class="btn-primary login-btn">대시보드 접속</button>
+    </form>
+
+    <p class="login-footer">본 화면은 개발 테스트 단계이며, 실 운영 시 Supabase 인증으로 전환됩니다.</p>
+  </div>
+</section>
+
+<!-- ============ 대시보드 화면 ============ -->
+<section id="dashboardScreen" class="dashboard-screen" hidden>
+
+  <!-- 사이드바 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo-mark logo-mark-sm">AD</div>
+      <span class="sidebar-brand-text">ADS DASHBOARD</span>
+    </div>
+
+    <nav class="sidebar-menu">
+      <ul id="sidebarMenuList"></ul>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="sidebar-footer-text">v0.1 · Prototype</span>
+    </div>
+  </aside>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- 메인 영역 -->
+  <div class="main-wrapper">
+
+    <!-- 상단 바 -->
+    <header class="topbar">
+      <button class="menu-toggle" id="menuToggle" aria-label="메뉴 열기">
+        <span></span><span></span><span></span>
+      </button>
+
+      <div class="topbar-info">
+        <div class="topbar-field">
+          <label for="advertiserSelect" class="topbar-label">광고주명</label>
+          <select id="advertiserSelect" class="topbar-select"></select>
+        </div>
+        <div class="topbar-field">
+          <span class="topbar-label">분석 기간</span>
+          <span id="periodLabel" class="topbar-period"></span>
+        </div>
+      </div>
+
+      <button id="logoutBtn" class="btn-outline logout-btn">로그아웃</button>
+    </header>
+
+    <!-- 컨텐츠 영역 -->
+    <main class="content" id="content">
+
+      <!-- 성과 대시보드 뷰 -->
+      <div class="view" id="view-overview">
+        <h2 class="view-title">성과 대시보드</h2>
+
+        <div class="kpi-grid" id="kpiGrid"></div>
+
+        <div class="chart-grid">
+          <div class="chart-card">
+            <h3 class="chart-card-title">일별 광고비 추이</h3>
+            <div class="chart-canvas-wrap"><canvas id="spendChart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3 class="chart-card-title">일별 광고매출 추이</h3>
+            <div class="chart-canvas-wrap"><canvas id="revenueChart"></canvas></div>
+          </div>
+          <div class="chart-card chart-card-wide">
+            <h3 class="chart-card-title">ROAS 추이</h3>
+            <div class="chart-canvas-wrap"><canvas id="roasChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 준비 중 플레이스홀더 뷰 (그래프 추이, 상품별 데이터 등) -->
+      <div class="view" id="view-placeholder" hidden>
+        <h2 class="view-title" id="placeholderTitle">준비 중</h2>
+        <div class="placeholder-card">
+          <p class="placeholder-text">해당 메뉴는 다음 단계에서 Supabase 연동과 함께 구현될 예정입니다.</p>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
