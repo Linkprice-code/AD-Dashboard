@@ -13,7 +13,7 @@
 --------------------------------------------------------- */
 const SUPABASE_CONFIG = {
   url: "https://agglowdlyduilkjskxyx.supabase.co", // TODO: 실제 Supabase 프로젝트 URL로 교체
-  anonKey: sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9 // TODO: 실제 anon(public) key로 교체
+  anonKey: "sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9" // TODO: 실제 anon(public) key로 교체
 };
 
 const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertiser-login`;
