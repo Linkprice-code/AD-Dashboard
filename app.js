@@ -56,9 +56,10 @@ const MOCK_KPI = {
 /* ---------------------------------------------------------
    4. 인증
    ---------------------------------------------------------
-   비밀번호 검증은 항상 Supabase Edge Function(advertiser-login)에서
-   수행한다. 브라우저는 결과로 받은 광고주 정보 + 서명된 세션 토큰만
-   보관하며, password / password_hash는 어떤 경우에도 다루지 않는다.
+   로그인 크리덴셜(광고주 naver_customer_id) 검증은 항상 Supabase Edge
+   Function(advertiser-login)에서 수행한다. 브라우저는 결과로 받은 광고주
+   정보 + 서명된 세션 토큰만 보관하며, password / password_hash는 어떤
+   경우에도 다루지 않는다.
 --------------------------------------------------------- */
 async function authenticateAdvertiser(password) {
   let res;
@@ -84,7 +85,7 @@ async function authenticateAdvertiser(password) {
   }
 
   if (!res.ok || !payload.success) {
-    return { success: false, message: payload.message || "비밀번호가 올바르지 않습니다." };
+    return { success: false, message: payload.message || "고객번호가 올바르지 않습니다." };
   }
 
   saveSession(payload.advertiser, payload.session_token);
