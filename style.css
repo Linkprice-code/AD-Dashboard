@@ -56,6 +56,14 @@ button, input, select {
   padding: 24px;
 }
 
+/* .login-screen/.dashboard-screen의 display:flex는 author 스타일이라
+   브라우저 기본 [hidden] { display:none } (user-agent 스타일)보다 우선순위가
+   높다. hidden 속성이 실제로 화면을 가리도록 명시적으로 덮어쓴다. */
+.login-screen[hidden],
+.dashboard-screen[hidden] {
+  display: none;
+}
+
 .login-card {
   width: 100%;
   max-width: 400px;
@@ -164,6 +172,11 @@ button, input, select {
 
 .btn-primary:hover {
   background: var(--accent-dark);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-outline {
@@ -367,19 +380,10 @@ button, input, select {
   letter-spacing: 0.4px;
 }
 
-.topbar-select {
-  border: none;
-  background: none;
+.topbar-advertiser-name {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
-  padding: 2px 0;
-  cursor: pointer;
-  max-width: 220px;
-}
-
-.topbar-select:focus {
-  outline: none;
 }
 
 .topbar-period {
@@ -541,8 +545,11 @@ button, input, select {
     padding: 0 16px;
     gap: 12px;
   }
-  .topbar-select {
+  .topbar-advertiser-name {
     max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .login-card {
     padding: 32px 24px 24px;
