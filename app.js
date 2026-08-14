@@ -13,7 +13,7 @@
 --------------------------------------------------------- */
 const SUPABASE_CONFIG = {
   url: "https://agglowdlyduilkjskxyx.supabase.co", // TODO: 실제 Supabase 프로젝트 URL로 교체
-  anonKey: "sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9" // TODO: 실제 anon(public) key로 교체
+  anonKey: sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9 // TODO: 실제 anon(public) key로 교체
 };
 
 const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertiser-login`;
@@ -170,6 +170,7 @@ loginForm.addEventListener("submit", async (e) => {
   const password = passwordInput.value;
 
   loginError.hidden = true;
+loginError.style.display = "none";
   loginSubmitBtn.disabled = true;
   const originalLabel = loginSubmitBtn.textContent;
   loginSubmitBtn.textContent = "확인 중...";
@@ -183,9 +184,10 @@ loginForm.addEventListener("submit", async (e) => {
     passwordInput.value = "";
     showDashboard(result.advertiser);
   } else {
-    loginError.textContent = result.message;
-    loginError.hidden = false;
-  }
+  loginError.textContent = result.message;
+  loginError.hidden = false;
+  loginError.style.display = "block";
+}
 });
 
 logoutBtn.addEventListener("click", () => {
