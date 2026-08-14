@@ -1,59 +1,23 @@
 /* =========================================================
    ADS PERFORMANCE DASHBOARD - app.js
-   1단계: Mock 데이터 기반 정적 프론트엔드 로직
+   3단계: Supabase Edge Function 기반 실제 광고주 인증
+   (KPI/차트는 아직 Mock 데이터 유지, ad_performance 연동은 다음 단계)
    ========================================================= */
 
 /* ---------------------------------------------------------
-   1. 광고주 설정 (하드코딩 대신 객체/배열로 관리)
-   추후 Supabase 테이블(advertisers)에서 조회하도록 교체 예정
+   1. Supabase 공개 설정
+   ---------------------------------------------------------
+   url / anonKey는 브라우저에 노출되어도 되는 공개 값이다.
+   실제 데이터 접근 권한은 RLS + Edge Function이 담당하므로
+   GitHub에 커밋해도 안전하다. (service_role key는 절대 여기 두지 않는다)
 --------------------------------------------------------- */
-const ADVERTISERS = [
-  {
-    id: "adv-001",
-    name: "코스모뷰티",
-    period: "2026.07.01 ~ 2026.07.31",
-    kpi: {
-      cost: 12450000,
-      revenue: 85300000,
-      roas: 685,
-      clicks: 24530,
-      ctr: 2.41,
-      conversions: 1840,
-      cvr: 7.50,
-      cpa: 6766
-    }
-  },
-  {
-    id: "adv-002",
-    name: "그린리빙",
-    period: "2026.07.01 ~ 2026.07.31",
-    kpi: {
-      cost: 8320000,
-      revenue: 41600000,
-      roas: 500,
-      clicks: 15210,
-      ctr: 1.98,
-      conversions: 980,
-      cvr: 6.44,
-      cpa: 8490
-    }
-  },
-  {
-    id: "adv-003",
-    name: "스타일하우스",
-    period: "2026.07.01 ~ 2026.07.31",
-    kpi: {
-      cost: 21870000,
-      revenue: 152400000,
-      roas: 697,
-      clicks: 38940,
-      ctr: 2.87,
-      conversions: 3120,
-      cvr: 8.01,
-      cpa: 7010
-    }
-  }
-];
+const SUPABASE_CONFIG = {
+  url: "https://agglowdlyduilkjskxyx.supabase.co", // TODO: 실제 Supabase 프로젝트 URL로 교체
+  anonKey: sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9 // TODO: 실제 anon(public) key로 교체
+};
+
+const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertiser-login`;
+const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
    2. 사이드바 메뉴 정의
@@ -71,71 +35,121 @@ const MENU_ITEMS = [
 ];
 
 /* ---------------------------------------------------------
-   3. 인증 (현재는 Mock, 추후 Supabase Edge Function으로 교체)
+   3. KPI / 차트 Mock 데이터
    ---------------------------------------------------------
-   TODO(Supabase 연동 예정):
-   실 운영 단계에서는 아래 mockAuthenticate() 대신
-   Supabase Edge Function(예: /functions/v1/verify-password)을
-   호출하여 서버 측에서 비밀번호를 검증하도록 교체한다.
-   프론트엔드에는 비밀번호를 하드코딩하지 않는다.
+   ad_performance 테이블 연동 전까지는 로그인한 광고주와 무관하게
+   동일한 Mock 데이터를 보여준다.
 --------------------------------------------------------- */
-function mockAuthenticate(password) {
-  // 개발 테스트 전용 Mock 인증 로직 (운영 배포 금지)
-  return password === "123";
-}
+const MOCK_PERIOD = "2026.07.01 ~ 2026.07.31";
 
-/* ---------------------------------------------------------
-   4. 차트용 Mock 데이터 생성
---------------------------------------------------------- */
-function generateDailySeries(baseCost, baseRevenue, days = 14) {
-  const labels = [];
-  const cost = [];
-  const revenue = [];
-  const roas = [];
-
-  const today = new Date(2026, 6, 31); // 2026-07-31 기준
-
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
-
-    const noiseA = 0.8 + Math.random() * 0.4;
-    const noiseB = 0.8 + Math.random() * 0.4;
-    const dailyCost = Math.round((baseCost / days) * noiseA);
-    const dailyRevenue = Math.round((baseRevenue / days) * noiseB);
-
-    cost.push(dailyCost);
-    revenue.push(dailyRevenue);
-    roas.push(Math.round((dailyRevenue / dailyCost) * 100));
-  }
-
-  return { labels, cost, revenue, roas };
-}
-
-/* ---------------------------------------------------------
-   5. 상태
---------------------------------------------------------- */
-const state = {
-  currentAdvertiserId: ADVERTISERS[0].id,
-  charts: {}
+const MOCK_KPI = {
+  cost: 12450000,
+  revenue: 85300000,
+  roas: 685,
+  clicks: 24530,
+  ctr: 2.41,
+  conversions: 1840,
+  cvr: 7.50,
+  cpa: 6766
 };
 
 /* ---------------------------------------------------------
-   6. DOM 참조
+   4. 인증
+   ---------------------------------------------------------
+   비밀번호 검증은 항상 Supabase Edge Function(advertiser-login)에서
+   수행한다. 브라우저는 결과로 받은 광고주 정보 + 서명된 세션 토큰만
+   보관하며, password / password_hash는 어떤 경우에도 다루지 않는다.
+--------------------------------------------------------- */
+async function authenticateAdvertiser(password) {
+  let res;
+  try {
+    res = await fetch(ADVERTISER_LOGIN_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey
+      },
+      body: JSON.stringify({ password })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "비밀번호가 올바르지 않습니다." };
+  }
+
+  saveSession(payload.advertiser, payload.session_token);
+  return { success: true, advertiser: payload.advertiser };
+}
+
+function saveSession(advertiser, token) {
+  sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ advertiser, token }));
+}
+
+function clearSession() {
+  sessionStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+// advertiser_id 등은 여기서 신뢰용으로 쓰지 않는다 - UI 표시용일 뿐이며,
+// 이후 실제 데이터 조회 Edge Function은 매 요청마다 토큰을 서버에서 다시 검증한다.
+function getSession() {
+  const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+  if (!raw) return null;
+
+  let session;
+  try {
+    session = JSON.parse(raw);
+  } catch {
+    clearSession();
+    return null;
+  }
+
+  if (!session?.token || !session?.advertiser || isTokenExpired(session.token)) {
+    clearSession();
+    return null;
+  }
+
+  return session;
+}
+
+function isTokenExpired(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return true;
+
+  try {
+    const payloadJson = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+    const payload = JSON.parse(payloadJson);
+    return typeof payload.exp !== "number" || Date.now() >= payload.exp * 1000;
+  } catch {
+    return true;
+  }
+}
+
+/* ---------------------------------------------------------
+   5. DOM 참조
 --------------------------------------------------------- */
 const loginScreen = document.getElementById("loginScreen");
 const dashboardScreen = document.getElementById("dashboardScreen");
 const loginForm = document.getElementById("loginForm");
 const passwordInput = document.getElementById("passwordInput");
 const loginError = document.getElementById("loginError");
+const loginSubmitBtn = loginForm.querySelector("button[type=submit]");
 
 const sidebar = document.getElementById("sidebar");
 const sidebarMenuList = document.getElementById("sidebarMenuList");
 const sidebarBackdrop = document.getElementById("sidebarBackdrop");
 const menuToggle = document.getElementById("menuToggle");
 
-const advertiserSelect = document.getElementById("advertiserSelect");
+const advertiserNameEl = document.getElementById("advertiserName");
 const periodLabel = document.getElementById("periodLabel");
 const logoutBtn = document.getElementById("logoutBtn");
 
@@ -144,42 +158,38 @@ const viewOverview = document.getElementById("view-overview");
 const viewPlaceholder = document.getElementById("view-placeholder");
 const placeholderTitle = document.getElementById("placeholderTitle");
 
-/* ---------------------------------------------------------
-   7. 유틸
---------------------------------------------------------- */
-function formatWon(n) {
-  return `${n.toLocaleString("ko-KR")}원`;
-}
-
-function formatNumber(n) {
-  return n.toLocaleString("ko-KR");
-}
-
-function formatPercent(n) {
-  return `${n.toFixed(2)}%`;
-}
-
-function getCurrentAdvertiser() {
-  return ADVERTISERS.find((a) => a.id === state.currentAdvertiserId);
-}
+const state = {
+  charts: {}
+};
 
 /* ---------------------------------------------------------
-   8. 로그인 / 로그아웃
+   6. 로그인 / 로그아웃
 --------------------------------------------------------- */
-loginForm.addEventListener("submit", (e) => {
+loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const password = passwordInput.value;
 
-  if (mockAuthenticate(password)) {
-    loginError.hidden = true;
+  loginError.hidden = true;
+  loginSubmitBtn.disabled = true;
+  const originalLabel = loginSubmitBtn.textContent;
+  loginSubmitBtn.textContent = "확인 중...";
+
+  const result = await authenticateAdvertiser(password);
+
+  loginSubmitBtn.disabled = false;
+  loginSubmitBtn.textContent = originalLabel;
+
+  if (result.success) {
     passwordInput.value = "";
-    showDashboard();
+    showDashboard(result.advertiser);
   } else {
+    loginError.textContent = result.message;
     loginError.hidden = false;
   }
 });
 
 logoutBtn.addEventListener("click", () => {
+  clearSession();
   dashboardScreen.hidden = true;
   loginScreen.hidden = false;
   loginError.hidden = true;
@@ -187,17 +197,21 @@ logoutBtn.addEventListener("click", () => {
   passwordInput.focus();
 });
 
-function showDashboard() {
+function showDashboard(advertiser) {
   loginScreen.hidden = true;
   dashboardScreen.hidden = false;
-  renderAdvertiserOptions();
+
+  advertiserNameEl.textContent = advertiser.name;
+  periodLabel.textContent = MOCK_PERIOD;
+
   renderSidebarMenu();
   switchView("overview");
-  renderAdvertiserData();
+  renderKpiCards(MOCK_KPI);
+  renderCharts(MOCK_KPI);
 }
 
 /* ---------------------------------------------------------
-   9. 사이드바 메뉴 렌더링 / 뷰 전환
+   7. 사이드바 메뉴 렌더링 / 뷰 전환
 --------------------------------------------------------- */
 function renderSidebarMenu() {
   sidebarMenuList.innerHTML = "";
@@ -242,34 +256,23 @@ menuToggle.addEventListener("click", () => sidebar.classList.toggle("open"));
 sidebarBackdrop.addEventListener("click", () => sidebar.classList.remove("open"));
 
 /* ---------------------------------------------------------
-   10. 광고주 선택
+   8. 유틸
 --------------------------------------------------------- */
-function renderAdvertiserOptions() {
-  advertiserSelect.innerHTML = "";
-  ADVERTISERS.forEach((adv) => {
-    const opt = document.createElement("option");
-    opt.value = adv.id;
-    opt.textContent = adv.name;
-    advertiserSelect.appendChild(opt);
-  });
-  advertiserSelect.value = state.currentAdvertiserId;
+function formatWon(n) {
+  return `${n.toLocaleString("ko-KR")}원`;
 }
 
-advertiserSelect.addEventListener("change", (e) => {
-  state.currentAdvertiserId = e.target.value;
-  renderAdvertiserData();
-});
+function formatNumber(n) {
+  return n.toLocaleString("ko-KR");
+}
+
+function formatPercent(n) {
+  return `${n.toFixed(2)}%`;
+}
 
 /* ---------------------------------------------------------
-   11. KPI / 차트 렌더링
+   9. KPI / 차트 렌더링 (Mock)
 --------------------------------------------------------- */
-function renderAdvertiserData() {
-  const advertiser = getCurrentAdvertiser();
-  periodLabel.textContent = advertiser.period;
-  renderKpiCards(advertiser.kpi);
-  renderCharts(advertiser.kpi);
-}
-
 const KPI_DEFS = [
   { key: "cost", label: "광고비", format: formatWon },
   { key: "revenue", label: "광고매출", format: formatWon },
@@ -292,6 +295,32 @@ function renderKpiCards(kpi) {
     `;
     kpiGrid.appendChild(card);
   });
+}
+
+function generateDailySeries(baseCost, baseRevenue, days = 14) {
+  const labels = [];
+  const cost = [];
+  const revenue = [];
+  const roas = [];
+
+  const today = new Date(2026, 6, 31); // 2026-07-31 기준
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
+
+    const noiseA = 0.8 + Math.random() * 0.4;
+    const noiseB = 0.8 + Math.random() * 0.4;
+    const dailyCost = Math.round((baseCost / days) * noiseA);
+    const dailyRevenue = Math.round((baseRevenue / days) * noiseB);
+
+    cost.push(dailyCost);
+    revenue.push(dailyRevenue);
+    roas.push(Math.round((dailyRevenue / dailyCost) * 100));
+  }
+
+  return { labels, cost, revenue, roas };
 }
 
 function renderCharts(kpi) {
@@ -389,3 +418,13 @@ function chartOptions(yTickFormatter) {
     }
   };
 }
+
+/* ---------------------------------------------------------
+   10. 초기화 - 유효한 세션이 남아있으면 로그인 화면을 건너뛴다
+--------------------------------------------------------- */
+(function init() {
+  const session = getSession();
+  if (session) {
+    showDashboard(session.advertiser);
+  }
+})();
