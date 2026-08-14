@@ -19,20 +19,20 @@
     </div>
 
     <form id="loginForm" class="login-form" autocomplete="off">
-      <label for="passwordInput" class="login-label">비밀번호</label>
+      <label for="passwordInput" class="login-label">고객번호</label>
       <input
         type="password"
         id="passwordInput"
         class="login-input"
-        placeholder="비밀번호를 입력하세요"
+        placeholder="네이버 고객번호를 입력하세요"
         autocomplete="off"
         required
       >
-      <p id="loginError" class="login-error" hidden>비밀번호가 올바르지 않습니다.</p>
+      <p id="loginError" class="login-error" hidden>고객번호가 올바르지 않습니다.</p>
       <button type="submit" class="btn-primary login-btn">대시보드 접속</button>
     </form>
 
-    <p class="login-footer">비밀번호는 Supabase Edge Function에서 검증되며, 브라우저에는 저장되지 않습니다.</p>
+    <p class="login-footer">고객번호는 Supabase Edge Function에서 검증되며, 브라우저에는 저장되지 않습니다.</p>
   </div>
 </section>
 
