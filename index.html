@@ -32,7 +32,7 @@
       <button type="submit" class="btn-primary login-btn">대시보드 접속</button>
     </form>
 
-    <p class="login-footer">본 화면은 개발 테스트 단계이며, 실 운영 시 Supabase 인증으로 전환됩니다.</p>
+    <p class="login-footer">비밀번호는 Supabase Edge Function에서 검증되며, 브라우저에는 저장되지 않습니다.</p>
   </div>
 </section>
 
@@ -68,8 +68,8 @@
 
       <div class="topbar-info">
         <div class="topbar-field">
-          <label for="advertiserSelect" class="topbar-label">광고주명</label>
-          <select id="advertiserSelect" class="topbar-select"></select>
+          <span class="topbar-label">광고주명</span>
+          <span id="advertiserName" class="topbar-advertiser-name"></span>
         </div>
         <div class="topbar-field">
           <span class="topbar-label">분석 기간</span>
