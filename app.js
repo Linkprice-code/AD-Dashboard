@@ -12,8 +12,8 @@
    GitHub에 커밋해도 안전하다. (service_role key는 절대 여기 두지 않는다)
 --------------------------------------------------------- */
 const SUPABASE_CONFIG = {
-  url: "https://agglowdlyduilkjskxyx.supabase.co", // TODO: 실제 Supabase 프로젝트 URL로 교체
-  anonKey: sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9 // TODO: 실제 anon(public) key로 교체
+  url: "https://agglowdlyduilkjskxyx.supabase.co",
+  anonKey: "sb_publishable_SM4u637sEeM0Vi0HtD-DgQ_9bQU-AD9"
 };
 
 const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertiser-login`;
@@ -170,12 +170,12 @@ loginForm.addEventListener("submit", async (e) => {
   const password = passwordInput.value;
 
   loginError.hidden = true;
-loginError.style.display = "none";
   loginSubmitBtn.disabled = true;
   const originalLabel = loginSubmitBtn.textContent;
   loginSubmitBtn.textContent = "확인 중...";
 
   const result = await authenticateAdvertiser(password);
+  console.debug("[login] result:", result);
 
   loginSubmitBtn.disabled = false;
   loginSubmitBtn.textContent = originalLabel;
@@ -184,10 +184,14 @@ loginError.style.display = "none";
     passwordInput.value = "";
     showDashboard(result.advertiser);
   } else {
-  loginError.textContent = result.message;
-  loginError.hidden = false;
-  loginError.style.display = "block";
-}
+    loginError.textContent = result.message;
+    loginError.hidden = false;
+    console.debug("[login] loginError state:", {
+      textContent: loginError.textContent,
+      hidden: loginError.hidden,
+      computedDisplay: getComputedStyle(loginError).display
+    });
+  }
 });
 
 logoutBtn.addEventListener("click", () => {
