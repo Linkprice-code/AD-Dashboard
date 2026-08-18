@@ -722,12 +722,14 @@ button, input, select {
   margin-bottom: 10px;
 }
 
-.breakdown-filter {
+.breakdown-filter,
+.period-mode {
   display: flex;
   gap: 6px;
 }
 
-.breakdown-filter-btn {
+.breakdown-filter-btn,
+.period-mode-btn {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text-muted);
@@ -739,12 +741,14 @@ button, input, select {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.breakdown-filter-btn:hover {
+.breakdown-filter-btn:hover,
+.period-mode-btn:hover {
   border-color: var(--accent);
   color: var(--accent-dark);
 }
 
-.breakdown-filter-btn.active {
+.breakdown-filter-btn.active,
+.period-mode-btn.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
