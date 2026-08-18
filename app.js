@@ -434,6 +434,9 @@ const compareConfirmBtn = document.getElementById("compareConfirmBtn");
 const compareResetBtn = document.getElementById("compareResetBtn");
 
 const viewModel = document.getElementById("view-model");
+const modelViewTitle = document.getElementById("modelViewTitle");
+const modelViewNotice = document.getElementById("modelViewNotice");
+const modelListCard = document.getElementById("modelListCard");
 const modelCardGrid = document.getElementById("modelCardGrid");
 const modelSearchInput = document.getElementById("modelSearchInput");
 const modelDetailModal = document.getElementById("modelDetailModal");
@@ -473,6 +476,8 @@ const state = {
   breakdownRawType: "campaign",
   breakdownRows: [],
   campaignTypeRows: [],
+  modelViewRows: [],
+  modelViewOpts: null,
   breakdownSort: { key: "cost", dir: "desc" },
   overviewRenderToken: 0
 };
@@ -1057,16 +1062,67 @@ function renderSaBreakdownPlaceholder() {
 }
 
 /* ---------------------------------------------------------
-   6-2. SA 상품별(모델별) 성과 뷰 - 도넛/막대+선 차트 + 모델 카드 + 키워드 모달
+   6-2. 상품별(모델별) 성과 뷰 - 도넛/막대+선 차트 + 모델 카드 + 상세 모달
+   ---------------------------------------------------------
+   SA는 아직 API가 없어 예시 데이터, GFA는 gfa_adv_raw(ADVoost) 실데이터를 쓴다.
 --------------------------------------------------------- */
+async function renderModelView() {
+  modelViewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 상품별(모델별) 성과`;
+  if (state.currentChannel === "GFA") {
+    await renderGfaModelView();
+  } else {
+    renderSaModelView();
+  }
+}
+
 function renderSaModelView() {
+  modelListCard.hidden = false;
+  modelViewNotice.hidden = false;
+  modelViewNotice.textContent =
+    "예시 데이터로 화면 구성만 먼저 보여드립니다. 실제 상품별 raw 파일 업로드 기능 연동 후 실데이터로 교체됩니다.";
+
   const models = SA_MODEL_MOCK.map((m) => ({ ...m, ...withDerivedMetrics(m) }));
   const top5 = [...models].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
 
   renderModelDonutChart(top5);
   renderModelCvrRoasChart(top5);
   modelSearchInput.value = "";
-  renderModelCardGrid(models);
+  renderModelCardGrid(models, { showBadge: true, onClick: openModelDetailModal });
+}
+
+// ADVoost 쇼핑은 검색어(키워드) 단위 데이터가 원래 없어서, 카드 목록/클릭 상세 없이
+// 모델 매출 비중 + 주요 5개 상품 CVR&ROAS 차트 2개만 보여준다.
+async function renderGfaModelView() {
+  modelListCard.hidden = true;
+  modelViewNotice.hidden = true;
+
+  const token = ++state.overviewRenderToken;
+  const result = await fetchGfaPerformance("adv", {
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!result.success) {
+    modelViewNotice.hidden = false;
+    modelViewNotice.textContent = result.message;
+    destroyChart("modelDonut");
+    destroyChart("modelCvrRoas");
+    return;
+  }
+
+  if (result.rows.length === 0) {
+    modelViewNotice.hidden = false;
+    modelViewNotice.textContent =
+      '표시할 데이터가 없습니다. "데이터 업로드" 메뉴에서 ADV Raw를 먼저 업로드해주세요.';
+  }
+
+  const models = result.rows.map((r) => ({ model: r.name, category: null, ...r }));
+  const top5 = [...models].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+
+  renderModelDonutChart(top5);
+  renderModelCvrRoasChart(top5);
 }
 
 function renderModelDonutChart(top5) {
@@ -1125,11 +1181,21 @@ function renderModelCvrRoasChart(top5) {
   });
 }
 
-function renderModelCardGrid(models) {
+// models: {model, category, impressions, clicks, cost, conversions, revenue, ctr, cvr, roas, cpa}[]
+// opts: { showBadge: 카테고리 뱃지 표시 여부, onClick: 카드 클릭 시 호출할 함수(model) }
+function renderModelCardGrid(models, opts) {
+  state.modelViewRows = models;
+  state.modelViewOpts = opts;
+
   const q = modelSearchInput.value.trim().toLowerCase();
   const filtered = q
-    ? models.filter((m) => m.model.toLowerCase().includes(q) || m.category.toLowerCase().includes(q))
+    ? models.filter((m) => m.model.toLowerCase().includes(q) || (m.category || "").toLowerCase().includes(q))
     : models;
+
+  if (models.length === 0) {
+    modelCardGrid.innerHTML = "";
+    return;
+  }
 
   if (filtered.length === 0) {
     modelCardGrid.innerHTML = '<p class="grouped-empty">검색 결과가 없습니다.</p>';
@@ -1137,14 +1203,15 @@ function renderModelCardGrid(models) {
   }
 
   modelCardGrid.innerHTML = filtered
-    .map((m) => {
-      const badgeClass = MODEL_BADGE_COLORS[m.category] || "badge-blue";
-      const idx = SA_MODEL_MOCK.findIndex((x) => x.model === m.model);
+    .map((m, i) => {
+      const badgeHtml = opts.showBadge
+        ? `<span class="model-badge ${MODEL_BADGE_COLORS[m.category] || "badge-blue"}">${escapeHtml(m.category)}</span>`
+        : "";
       return `
-        <div class="model-card" data-model-index="${idx}">
+        <div class="model-card" data-idx="${i}">
           <div class="model-card-top">
             <span class="model-card-name">${escapeHtml(m.model)}</span>
-            <span class="model-badge ${badgeClass}">${escapeHtml(m.category)}</span>
+            ${badgeHtml}
           </div>
           <div class="model-card-metrics">
             <div><span class="model-metric-label">노출수</span><span class="model-metric-value">${formatNumber(m.impressions)}</span></div>
@@ -1163,26 +1230,28 @@ function renderModelCardGrid(models) {
       `;
     })
     .join("");
+
+  modelCardGrid.querySelectorAll(".model-card").forEach((card) => {
+    card.addEventListener("click", () => opts.onClick(filtered[Number(card.dataset.idx)]));
+  });
 }
 
-modelCardGrid.addEventListener("click", (e) => {
-  const card = e.target.closest(".model-card");
-  if (!card) return;
-  const model = SA_MODEL_MOCK[Number(card.dataset.modelIndex)];
-  if (model) openModelDetailModal(model);
-});
-
 modelSearchInput.addEventListener("input", () => {
-  const models = SA_MODEL_MOCK.map((m) => ({ ...m, ...withDerivedMetrics(m) }));
-  renderModelCardGrid(models);
+  renderModelCardGrid(state.modelViewRows, state.modelViewOpts);
 });
 
 function openModelDetailModal(model) {
   const d = withDerivedMetrics(model);
-  const badgeClass = MODEL_BADGE_COLORS[model.category] || "badge-blue";
 
-  modelDetailBadge.className = `model-badge ${badgeClass}`;
-  modelDetailBadge.textContent = model.category;
+  if (model.category) {
+    const badgeClass = MODEL_BADGE_COLORS[model.category] || "badge-blue";
+    modelDetailBadge.className = `model-badge ${badgeClass}`;
+    modelDetailBadge.textContent = model.category;
+    modelDetailBadge.hidden = false;
+  } else {
+    modelDetailBadge.hidden = true;
+  }
+
   modelDetailTitle.textContent = model.model;
   modelDetailPeriodLabel.textContent = state.analysisPeriod ? formatPeriodRange(state.analysisPeriod) : "";
 
@@ -1197,20 +1266,25 @@ function openModelDetailModal(model) {
   modelDetailRevenue.textContent = formatWon(d.revenue);
   modelDetailRoas.textContent = formatPercent(d.roas);
 
-  modelDetailKeywordBody.innerHTML = (model.keywords || [])
-    .map(
-      (k) => `
-        <tr>
-          <td>${escapeHtml(k.keyword)}</td>
-          <td>${formatNumber(k.impressions)}</td>
-          <td>${formatNumber(k.clicks)}</td>
-          <td>${formatWon(k.cost)}</td>
-          <td>${formatNumber(k.conversions)}</td>
-          <td>${formatWon(k.revenue)}</td>
-        </tr>
-      `
-    )
-    .join("");
+  if (model.keywords) {
+    modelDetailKeywordBody.innerHTML = model.keywords
+      .map(
+        (k) => `
+          <tr>
+            <td>${escapeHtml(k.keyword)}</td>
+            <td>${formatNumber(k.impressions)}</td>
+            <td>${formatNumber(k.clicks)}</td>
+            <td>${formatWon(k.cost)}</td>
+            <td>${formatNumber(k.conversions)}</td>
+            <td>${formatWon(k.revenue)}</td>
+          </tr>
+        `
+      )
+      .join("");
+  } else {
+    modelDetailKeywordBody.innerHTML =
+      '<tr><td colspan="6" class="grouped-empty">키워드 단위 데이터는 제공되지 않습니다.</td></tr>';
+  }
 
   modelDetailModal.hidden = false;
 }
@@ -1351,9 +1425,9 @@ function renderCurrentView() {
     renderTrendView();
   } else if (item.id === "upload") {
     viewUpload.hidden = false;
-  } else if (item.id === "product" && !isGfa) {
+  } else if (item.id === "product") {
     viewModel.hidden = false;
-    renderSaModelView();
+    renderModelView();
   } else if (item.gfaRawType && isGfa) {
     viewGrouped.hidden = false;
     renderGroupedPerformance(item);
