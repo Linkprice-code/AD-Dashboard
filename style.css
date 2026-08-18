@@ -533,12 +533,27 @@ button, input, select {
 }
 
 .kpi-sub {
-  font-size: 12px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef0f5;
+  color: var(--text-muted);
 }
 
-.kpi-sub.up { color: var(--positive); }
-.kpi-sub.down { color: var(--negative); }
+.kpi-sub.up {
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--positive);
+}
+
+.kpi-sub.down {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--negative);
+}
 
 /* 차트 */
 
