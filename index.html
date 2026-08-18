@@ -99,7 +99,12 @@
             <span class="period-sep">~</span>
             <input type="date" id="analysisToInput" class="period-input">
           </div>
-          <div class="period-compare" id="comparePeriodText"></div>
+          <div class="period-field">
+            <span class="period-label">비교기간</span>
+            <input type="date" id="compareFromInput" class="period-input">
+            <span class="period-sep">~</span>
+            <input type="date" id="compareToInput" class="period-input">
+          </div>
         </div>
 
         <p class="empty-notice" id="overviewEmptyNotice" hidden></p>
@@ -109,55 +114,39 @@
         <div class="breakdown-section">
           <div class="breakdown-card">
             <div class="breakdown-header">
-              <h3 class="breakdown-title">캠페인별 성과</h3>
-              <span class="breakdown-hint">행을 클릭하면 아래 그룹별 성과가 필터링됩니다</span>
+              <h3 class="breakdown-title" id="breakdownTitle">캠페인별 성과</h3>
+              <div class="breakdown-filter" id="breakdownFilter" role="tablist">
+                <button type="button" class="breakdown-filter-btn active" data-raw-type="campaign">캠페인별</button>
+                <button type="button" class="breakdown-filter-btn" data-raw-type="adgroup">그룹별</button>
+                <button type="button" class="breakdown-filter-btn" data-raw-type="adv">ADVoost 쇼핑</button>
+              </div>
             </div>
+            <span class="breakdown-hint">컬럼 이름을 클릭하면 그 지표로 오름차순/내림차순 정렬됩니다</span>
             <div class="table-wrap">
-              <table class="data-table">
+              <table class="data-table" id="breakdownTable">
                 <thead>
                   <tr>
-                    <th>캠페인</th>
-                    <th>광고비</th>
-                    <th>광고매출</th>
-                    <th>ROAS</th>
-                    <th>클릭수</th>
-                    <th>CTR</th>
-                    <th>전환수</th>
-                    <th>CVR</th>
-                    <th>CPA</th>
+                    <th class="sortable" data-sort-key="name" id="breakdownNameHeader">이름</th>
+                    <th class="sortable" data-sort-key="cost">광고비</th>
+                    <th class="sortable" data-sort-key="revenue">광고매출</th>
+                    <th class="sortable" data-sort-key="roas">ROAS</th>
+                    <th class="sortable" data-sort-key="clicks">클릭수</th>
+                    <th class="sortable" data-sort-key="ctr">CTR</th>
+                    <th class="sortable" data-sort-key="conversions">전환수</th>
+                    <th class="sortable" data-sort-key="cvr">CVR</th>
+                    <th class="sortable" data-sort-key="cpa">CPA</th>
                   </tr>
                 </thead>
-                <tbody id="overviewCampaignTableBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="breakdown-card">
-            <div class="breakdown-header">
-              <h3 class="breakdown-title" id="overviewGroupTitle">광고그룹별 성과</h3>
-              <button type="button" class="breakdown-reset" id="campaignResetBtn" hidden>전체 캠페인 보기</button>
-            </div>
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>광고그룹</th>
-                    <th>광고비</th>
-                    <th>광고매출</th>
-                    <th>ROAS</th>
-                    <th>클릭수</th>
-                    <th>CTR</th>
-                    <th>전환수</th>
-                    <th>CVR</th>
-                    <th>CPA</th>
-                  </tr>
-                </thead>
-                <tbody id="overviewGroupTableBody"></tbody>
+                <tbody id="breakdownTableBody"></tbody>
               </table>
             </div>
           </div>
         </div>
+      </div>
 
+      <!-- 그래프 추이 뷰 -->
+      <div class="view" id="view-trend" hidden>
+        <h2 class="view-title" id="trendTitle">SA 그래프 추이</h2>
         <div class="chart-grid">
           <div class="chart-card">
             <h3 class="chart-card-title">일별 광고비 추이</h3>
