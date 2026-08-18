@@ -31,52 +31,42 @@ const SESSION_STORAGE_KEY = "adsDashboardSession";
 const MENU_ITEMS = [
   { id: "overview", label: "성과 대시보드" },
   { id: "trend", label: "그래프 추이" },
-  { id: "product", label: "상품별 데이터", gfaGroupBy: "product" },
+  { id: "product", label: "상품별 데이터", gfaRawType: "adv" },
   { id: "daily", label: "일별 데이터" },
   { id: "monthly", label: "월별 데이터" },
   { id: "category", label: "카테고리별 데이터" },
-  { id: "campaign", label: "캠페인별 성과", gfaGroupBy: "campaign" },
-  { id: "adgroup", label: "광고그룹별 성과", gfaGroupBy: "ad_group" },
+  { id: "campaign", label: "캠페인별 성과", gfaRawType: "campaign" },
+  { id: "adgroup", label: "광고그룹별 성과", gfaRawType: "adgroup" },
   { id: "creative", label: "소재별 성과" },
   { id: "upload", label: "데이터 업로드", gfaOnly: true }
 ];
 
-/* ---------------------------------------------------------
-   3. 채널(SA / GFA) / KPI / 차트 Mock 데이터
-   ---------------------------------------------------------
-   ad_performance 테이블 연동 전까지는 로그인한 광고주와 무관하게
-   채널별로 고정된 Mock 데이터를 보여준다. SA는 네이버 검색광고(파워링크 등),
-   GFA는 네이버 GFA(디스플레이) 광고를 뜻한다. 실데이터 연동 시
-   CHANNEL_MOCK_DATA 자리에 광고주+채널별 ad_performance 집계 결과가 들어간다.
---------------------------------------------------------- */
-const MOCK_PERIOD = "2026.07.01 ~ 2026.07.31";
+// raw_type -> "이름" 컬럼 헤더에 쓸 표시명
+const GFA_RAW_TYPE_NAME_LABEL = {
+  campaign: "캠페인",
+  adgroup: "광고그룹",
+  adv: "상품"
+};
 
+/* ---------------------------------------------------------
+   3. 채널(SA / GFA) 라벨 / SA Mock 데이터
+   ---------------------------------------------------------
+   GFA는 실제 업로드된 데이터(gfa_campaign_raw 등)로 핵심지표를 계산한다.
+   SA는 아직 네이버 API 연동 전이라 원시 지표(impressions/clicks/cost/
+   conversions/revenue)만 고정된 Mock 값으로 두고, CTR/CPC/CVR/ROAS/CPA는
+   GFA와 동일한 계산식(computeDerivedMetrics)으로 매번 계산한다.
+--------------------------------------------------------- */
 const CHANNEL_LABELS = {
   SA: "SA",
   GFA: "GFA"
 };
 
-const CHANNEL_MOCK_DATA = {
-  SA: {
-    cost: 12450000,
-    revenue: 85300000,
-    roas: 685,
-    clicks: 24530,
-    ctr: 2.41,
-    conversions: 1840,
-    cvr: 7.50,
-    cpa: 6766
-  },
-  GFA: {
-    cost: 6820000,
-    revenue: 31450000,
-    roas: 461,
-    clicks: 158420,
-    ctr: 0.68,
-    conversions: 612,
-    cvr: 0.39,
-    cpa: 11144
-  }
+const SA_MOCK_TOTALS = {
+  impressions: 1018000,
+  clicks: 24530,
+  cost: 12450000,
+  conversions: 1840,
+  revenue: 85300000
 };
 
 /* ---------------------------------------------------------
@@ -167,8 +157,10 @@ function isTokenExpired(token) {
    두 요청 모두 advertiser-login에서 받은 세션 토큰을 X-Session-Token
    헤더로 보낸다. advertiser_id는 서버가 이 토큰을 검증해서 알아내므로
    프론트엔드에서 advertiser_id를 별도로 보내지 않는다.
+   rawType은 "campaign" / "adgroup" / "adv" 중 하나이며, 각각
+   gfa_campaign_raw / gfa_adgroup_raw / gfa_adv_raw 테이블에 대응한다.
 --------------------------------------------------------- */
-async function uploadGfaData(rows) {
+async function uploadGfaData(rawType, rows) {
   const session = getSession();
   if (!session) {
     return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
@@ -184,7 +176,7 @@ async function uploadGfaData(rows) {
         "apikey": SUPABASE_CONFIG.anonKey,
         "X-Session-Token": session.token
       },
-      body: JSON.stringify({ channel: "GFA", rows })
+      body: JSON.stringify({ raw_type: rawType, rows })
     });
   } catch {
     return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
@@ -204,7 +196,7 @@ async function uploadGfaData(rows) {
   return payload;
 }
 
-async function fetchGfaPerformance(groupBy) {
+async function fetchGfaPerformance(rawType, { dateFrom, dateTo, campaign } = {}) {
   const session = getSession();
   if (!session) {
     return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
@@ -220,7 +212,12 @@ async function fetchGfaPerformance(groupBy) {
         "apikey": SUPABASE_CONFIG.anonKey,
         "X-Session-Token": session.token
       },
-      body: JSON.stringify({ group_by: groupBy })
+      body: JSON.stringify({
+        raw_type: rawType,
+        date_from: dateFrom,
+        date_to: dateTo,
+        campaign
+      })
     });
   } catch {
     return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
@@ -272,16 +269,67 @@ const groupedNameHeader = document.getElementById("groupedNameHeader");
 const groupedTableBody = document.getElementById("groupedTableBody");
 
 const viewUpload = document.getElementById("view-upload");
-const uploadForm = document.getElementById("uploadForm");
-const uploadFileInput = document.getElementById("uploadFileInput");
-const uploadStatus = document.getElementById("uploadStatus");
-const downloadTemplateLink = document.getElementById("downloadTemplateLink");
+
+const analysisFromInput = document.getElementById("analysisFromInput");
+const analysisToInput = document.getElementById("analysisToInput");
+const comparePeriodText = document.getElementById("comparePeriodText");
+const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
+const overviewCampaignTableBody = document.getElementById("overviewCampaignTableBody");
+const overviewGroupTableBody = document.getElementById("overviewGroupTableBody");
+const overviewGroupTitle = document.getElementById("overviewGroupTitle");
+const campaignResetBtn = document.getElementById("campaignResetBtn");
 
 const state = {
   charts: {},
   currentChannel: "SA",
-  currentView: "overview"
+  currentView: "overview",
+  analysisPeriod: null,
+  comparisonPeriod: null,
+  selectedCampaign: null,
+  overviewRenderToken: 0
 };
+
+/* ---------------------------------------------------------
+   5-1. 분석기간 / 비교기간 유틸
+   ---------------------------------------------------------
+   비교기간은 분석기간과 같은 길이만큼, 분석기간 바로 직전으로 자동 계산한다.
+   (예: 분석기간이 8/1~8/14면 비교기간은 7/18~7/31)
+--------------------------------------------------------- */
+// toISOString()은 UTC 기준이라, UTC+9(한국)처럼 UTC보다 앞선 시간대에서는
+// 자정 근처 날짜가 하루 밀려서 계산될 수 있다. 항상 로컬 날짜 기준으로 뽑는다.
+function toISODate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function daysBetweenInclusive(fromStr, toStr) {
+  const from = new Date(`${fromStr}T00:00:00`);
+  const to = new Date(`${toStr}T00:00:00`);
+  return Math.round((to - from) / 86400000) + 1;
+}
+
+function defaultAnalysisPeriod() {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 29); // 최근 30일
+  return { from: toISODate(from), to: toISODate(to) };
+}
+
+function computeComparisonPeriod(fromStr, toStr) {
+  const lengthDays = Math.max(daysBetweenInclusive(fromStr, toStr), 1);
+  const compareTo = new Date(`${fromStr}T00:00:00`);
+  compareTo.setDate(compareTo.getDate() - 1);
+  const compareFrom = new Date(compareTo);
+  compareFrom.setDate(compareFrom.getDate() - (lengthDays - 1));
+  return { from: toISODate(compareFrom), to: toISODate(compareTo) };
+}
+
+function formatPeriodRange(period) {
+  if (!period) return "-";
+  return `${period.from.replace(/-/g, ".")} ~ ${period.to.replace(/-/g, ".")}`;
+}
 
 /* ---------------------------------------------------------
    6. 로그인 / 로그아웃
@@ -329,10 +377,31 @@ function showDashboard(advertiser) {
   dashboardScreen.hidden = false;
 
   advertiserNameEl.textContent = advertiser.name;
-  periodLabel.textContent = MOCK_PERIOD;
+
+  state.analysisPeriod = defaultAnalysisPeriod();
+  state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
+  analysisFromInput.value = state.analysisPeriod.from;
+  analysisToInput.value = state.analysisPeriod.to;
 
   renderSidebarMenu();
   switchView("overview");
+}
+
+analysisFromInput.addEventListener("change", handlePeriodChange);
+analysisToInput.addEventListener("change", handlePeriodChange);
+
+function handlePeriodChange() {
+  const from = analysisFromInput.value;
+  const to = analysisToInput.value;
+  if (!from || !to || from > to) return;
+
+  state.analysisPeriod = { from, to };
+  state.comparisonPeriod = computeComparisonPeriod(from, to);
+  state.selectedCampaign = null;
+
+  if (state.currentView === "overview") {
+    renderOverview();
+  }
 }
 
 /* ---------------------------------------------------------
@@ -354,11 +423,185 @@ channelSwitch.addEventListener("click", (e) => {
   renderCurrentView();
 });
 
-function renderOverview() {
-  const kpi = CHANNEL_MOCK_DATA[state.currentChannel];
+async function renderOverview() {
   overviewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 성과 대시보드`;
-  renderKpiCards(kpi);
-  renderCharts(kpi);
+  periodLabel.textContent = formatPeriodRange(state.analysisPeriod);
+  comparePeriodText.textContent = `전기 대비: ${formatPeriodRange(state.comparisonPeriod)}`;
+
+  if (state.currentChannel === "GFA") {
+    await renderGfaOverview();
+  } else {
+    renderSaOverview();
+  }
+}
+
+function renderSaOverview() {
+  overviewEmptyNotice.hidden = true;
+
+  const current = withDerivedMetrics(SA_MOCK_TOTALS);
+  renderKpiCards(current, null);
+  renderCharts(current);
+
+  state.selectedCampaign = null;
+  campaignResetBtn.hidden = true;
+  overviewGroupTitle.textContent = "광고그룹별 성과";
+
+  const notReadyRow = `<tr><td colspan="9" class="grouped-empty">네이버 SA API 연동 후 제공됩니다.</td></tr>`;
+  overviewCampaignTableBody.innerHTML = notReadyRow;
+  overviewGroupTableBody.innerHTML = notReadyRow;
+}
+
+/* ---------------------------------------------------------
+   6-2. GFA 성과 대시보드 - 실데이터 (분석기간/비교기간 기준)
+--------------------------------------------------------- */
+function sumRawTotals(rows) {
+  const totals = { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 };
+  rows.forEach((row) => {
+    totals.impressions += row.impressions;
+    totals.clicks += row.clicks;
+    totals.cost += row.cost;
+    totals.conversions += row.conversions;
+    totals.revenue += row.revenue;
+  });
+  return totals;
+}
+
+async function renderGfaOverview() {
+  const token = ++state.overviewRenderToken;
+  const { from, to } = state.analysisPeriod;
+  const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
+
+  const [currentResult, comparisonResult] = await Promise.all([
+    fetchGfaPerformance("campaign", { dateFrom: from, dateTo: to }),
+    fetchGfaPerformance("campaign", { dateFrom: compareFrom, dateTo: compareTo })
+  ]);
+
+  if (token !== state.overviewRenderToken) return; // 그 사이 다른 요청으로 대체됨
+
+  if (!currentResult.success) {
+    overviewEmptyNotice.hidden = false;
+    overviewEmptyNotice.textContent = currentResult.message;
+    renderKpiCards(withDerivedMetrics({ impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }), null);
+    renderCharts({ cost: 0, revenue: 0 });
+    overviewCampaignTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
+    overviewGroupTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
+    return;
+  }
+
+  const currentTotals = sumRawTotals(currentResult.rows);
+  const comparisonTotals = comparisonResult.success ? sumRawTotals(comparisonResult.rows) : null;
+  const hasData = currentResult.rows.length > 0;
+
+  overviewEmptyNotice.hidden = hasData;
+  if (!hasData) {
+    overviewEmptyNotice.textContent =
+      '표시할 데이터가 없습니다. GFA는 "데이터 업로드" 메뉴에서 캠페인 Raw CSV를 먼저 업로드해주세요.';
+  }
+
+  renderKpiCards(
+    withDerivedMetrics(currentTotals),
+    comparisonTotals ? withDerivedMetrics(comparisonTotals) : null
+  );
+  renderCharts(currentTotals);
+  renderCampaignBreakdownTable(currentResult.rows);
+
+  state.selectedCampaign = null;
+  await renderGfaGroupTable();
+}
+
+function renderCampaignBreakdownTable(rows) {
+  if (rows.length === 0) {
+    overviewCampaignTableBody.innerHTML =
+      '<tr><td colspan="9" class="grouped-empty">이 기간에 업로드된 캠페인 데이터가 없습니다.</td></tr>';
+    return;
+  }
+
+  overviewCampaignTableBody.innerHTML = rows
+    .map(
+      (row) => `
+        <tr class="clickable" data-campaign="${escapeAttr(row.name)}">
+          <td>${escapeHtml(row.name)}</td>
+          <td>${formatWon(row.cost)}</td>
+          <td>${formatWon(row.revenue)}</td>
+          <td>${row.roas}%</td>
+          <td>${formatNumber(row.clicks)}</td>
+          <td>${row.ctr.toFixed(2)}%</td>
+          <td>${formatNumber(row.conversions)}</td>
+          <td>${row.cvr.toFixed(2)}%</td>
+          <td>${formatWon(row.cpa)}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+overviewCampaignTableBody.addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-campaign]");
+  if (!tr) return;
+
+  state.selectedCampaign = state.selectedCampaign === tr.dataset.campaign ? null : tr.dataset.campaign;
+  highlightSelectedCampaignRow();
+  renderGfaGroupTable();
+});
+
+campaignResetBtn.addEventListener("click", () => {
+  state.selectedCampaign = null;
+  highlightSelectedCampaignRow();
+  renderGfaGroupTable();
+});
+
+function highlightSelectedCampaignRow() {
+  overviewCampaignTableBody.querySelectorAll("tr[data-campaign]").forEach((tr) => {
+    tr.classList.toggle("selected", tr.dataset.campaign === state.selectedCampaign);
+  });
+}
+
+async function renderGfaGroupTable() {
+  const token = state.overviewRenderToken;
+
+  campaignResetBtn.hidden = !state.selectedCampaign;
+  overviewGroupTitle.textContent = state.selectedCampaign
+    ? `광고그룹별 성과 (캠페인: ${state.selectedCampaign})`
+    : "광고그룹별 성과";
+
+  overviewGroupTableBody.innerHTML = '<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>';
+
+  const result = await fetchGfaPerformance("adgroup", {
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to,
+    campaign: state.selectedCampaign || undefined
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!result.success) {
+    overviewGroupTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    return;
+  }
+
+  if (result.rows.length === 0) {
+    overviewGroupTableBody.innerHTML =
+      '<tr><td colspan="9" class="grouped-empty">이 기간에 업로드된 그룹 데이터가 없습니다.</td></tr>';
+    return;
+  }
+
+  overviewGroupTableBody.innerHTML = result.rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${formatWon(row.cost)}</td>
+          <td>${formatWon(row.revenue)}</td>
+          <td>${row.roas}%</td>
+          <td>${formatNumber(row.clicks)}</td>
+          <td>${row.ctr.toFixed(2)}%</td>
+          <td>${formatNumber(row.conversions)}</td>
+          <td>${row.cvr.toFixed(2)}%</td>
+          <td>${formatWon(row.cpa)}</td>
+        </tr>
+      `
+    )
+    .join("");
 }
 
 /* ---------------------------------------------------------
@@ -414,7 +657,7 @@ function renderCurrentView() {
     renderOverview();
   } else if (item.id === "upload") {
     viewUpload.hidden = false;
-  } else if (item.gfaGroupBy && isGfa) {
+  } else if (item.gfaRawType && isGfa) {
     viewGrouped.hidden = false;
     renderGroupedPerformance(item);
   } else {
@@ -435,10 +678,10 @@ sidebarBackdrop.addEventListener("click", () => sidebar.classList.remove("open")
 --------------------------------------------------------- */
 async function renderGroupedPerformance(item) {
   groupedTitle.textContent = `GFA ${item.label}`;
-  groupedNameHeader.textContent = item.label.replace("성과", "").replace("데이터", "").trim() || "이름";
+  groupedNameHeader.textContent = GFA_RAW_TYPE_NAME_LABEL[item.gfaRawType] || "이름";
   groupedTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>`;
 
-  const result = await fetchGfaPerformance(item.gfaGroupBy);
+  const result = await fetchGfaPerformance(item.gfaRawType);
 
   // 그 사이에 다른 메뉴로 이동했다면 낡은 응답으로 화면을 덮어쓰지 않는다.
   if (state.currentView !== item.id || state.currentChannel !== "GFA") return;
@@ -479,20 +722,39 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// escapeHtml()은 텍스트 노드 기준이라 "는 이스케이프하지 않는다.
+// data-campaign="..." 같은 HTML 속성값 안에 넣을 때는 "를 반드시 이스케이프해야
+// 속성값을 깨고 나가는 걸 막을 수 있어서 별도 함수로 둔다.
+function escapeAttr(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 /* ---------------------------------------------------------
-   7-2. GFA 데이터 업로드 (CSV)
+   7-2. GFA 데이터 업로드 (CSV, raw_type별 3개 폼)
 --------------------------------------------------------- */
-const GFA_CSV_COLUMNS = [
-  "date",
-  "campaign",
-  "ad_group",
-  "product",
-  "impressions",
-  "clicks",
-  "cost",
-  "conversions",
-  "revenue"
-];
+const GFA_RAW_TYPE_COLUMNS = {
+  campaign: ["date", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
+  adgroup: ["date", "campaign", "ad_group", "impressions", "clicks", "cost", "conversions", "revenue"],
+  adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"]
+};
+
+const GFA_RAW_TYPE_TEMPLATE_CSV = {
+  campaign:
+    "date,campaign,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,여름신상프로모션,15200,320,540000,18,3200000\n",
+  adgroup:
+    "date,campaign,ad_group,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,여름신상프로모션,배너그룹A,15200,320,540000,18,3200000\n",
+  adv:
+    "date,product,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,ADVoost,15200,320,540000,18,3200000\n"
+};
+
 const GFA_MAX_UPLOAD_ROWS = 5000;
 
 function splitCsvLine(line) {
@@ -524,14 +786,14 @@ function splitCsvLine(line) {
   return cells;
 }
 
-function parseGfaCsv(text) {
+function parseGfaCsv(text, requiredColumns) {
   const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
   if (lines.length < 2) {
     throw new Error("업로드할 데이터가 없습니다 (헤더 다음 줄부터 데이터가 있어야 합니다).");
   }
 
   const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-  const missing = GFA_CSV_COLUMNS.filter((col) => !header.includes(col));
+  const missing = requiredColumns.filter((col) => !header.includes(col));
   if (missing.length > 0) {
     throw new Error(`CSV 헤더에 다음 컬럼이 없습니다: ${missing.join(", ")}`);
   }
@@ -543,80 +805,85 @@ function parseGfaCsv(text) {
       raw[col] = (cells[i] ?? "").trim();
     });
 
-    return {
-      date: raw.date,
-      campaign: raw.campaign,
-      ad_group: raw.ad_group,
-      product: raw.product,
-      impressions: Number(raw.impressions),
-      clicks: Number(raw.clicks),
-      cost: Number(raw.cost),
-      conversions: Number(raw.conversions),
-      revenue: Number(raw.revenue)
-    };
+    const row = { date: raw.date };
+    requiredColumns.forEach((col) => {
+      if (col === "date") return;
+      row[col] = ["impressions", "clicks", "cost", "conversions", "revenue"].includes(col)
+        ? Number(raw[col])
+        : raw[col];
+    });
+    return row;
   });
 }
 
-uploadForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
+// 캠페인 / 그룹 / ADV 3개 업로드 폼에 공통 로직을 붙인다.
+document.querySelectorAll("#view-upload .upload-form").forEach((form) => {
+  const rawType = form.dataset.rawType;
+  const fileInput = form.querySelector(".upload-file-input");
+  const statusEl = form.closest(".upload-card").querySelector(".upload-status");
+  const submitBtn = form.querySelector("button[type=submit]");
 
-  const file = uploadFileInput.files[0];
-  if (!file) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
 
-  uploadStatus.hidden = true;
-  const submitBtn = uploadForm.querySelector("button[type=submit]");
-  submitBtn.disabled = true;
-  const originalLabel = submitBtn.textContent;
-  submitBtn.textContent = "업로드 중...";
+    const file = fileInput.files[0];
+    if (!file) return;
 
-  try {
-    const text = await file.text();
-    const rows = parseGfaCsv(text);
+    statusEl.hidden = true;
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = "업로드 중...";
 
-    if (rows.length === 0) {
-      throw new Error("업로드할 데이터가 없습니다.");
+    try {
+      const text = await file.text();
+      const rows = parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType]);
+
+      if (rows.length === 0) {
+        throw new Error("업로드할 데이터가 없습니다.");
+      }
+      if (rows.length > GFA_MAX_UPLOAD_ROWS) {
+        throw new Error(`한 번에 최대 ${GFA_MAX_UPLOAD_ROWS}행까지 업로드할 수 있습니다.`);
+      }
+
+      const result = await uploadGfaData(rawType, rows);
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      showUploadStatus(
+        statusEl,
+        `업로드 완료: ${result.inserted}건 저장 (${result.dates_replaced.length}개 날짜 갱신)`,
+        "success"
+      );
+      form.reset();
+    } catch (err) {
+      showUploadStatus(statusEl, err.message || "업로드 중 오류가 발생했습니다.", "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
     }
-    if (rows.length > GFA_MAX_UPLOAD_ROWS) {
-      throw new Error(`한 번에 최대 ${GFA_MAX_UPLOAD_ROWS}행까지 업로드할 수 있습니다.`);
-    }
-
-    const result = await uploadGfaData(rows);
-    if (!result.success) {
-      throw new Error(result.message);
-    }
-
-    showUploadStatus(
-      `업로드 완료: ${result.inserted}건 저장 (${result.dates_replaced.length}개 날짜 갱신)`,
-      "success"
-    );
-    uploadForm.reset();
-  } catch (err) {
-    showUploadStatus(err.message || "업로드 중 오류가 발생했습니다.", "error");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalLabel;
-  }
+  });
 });
 
-function showUploadStatus(message, type) {
-  uploadStatus.textContent = message;
-  uploadStatus.className = `upload-status upload-status-${type}`;
-  uploadStatus.hidden = false;
+function showUploadStatus(statusEl, message, type) {
+  statusEl.textContent = message;
+  statusEl.className = `upload-status upload-status-${type}`;
+  statusEl.hidden = false;
 }
 
 // CSV 템플릿 다운로드 링크 (정적 파일 없이 브라우저에서 즉석으로 생성)
-(function setupGfaTemplateLink() {
-  const templateCsv =
-    "date,campaign,ad_group,product,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,여름신상프로모션,배너그룹A,ADVoost,15200,320,540000,18,3200000\n";
-  downloadTemplateLink.href = "data:text/csv;charset=utf-8," + encodeURIComponent(templateCsv);
-})();
+document.querySelectorAll("#view-upload .upload-template-link").forEach((link) => {
+  const template = GFA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template];
+  if (template) {
+    link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(template);
+  }
+});
 
 /* ---------------------------------------------------------
    8. 유틸
 --------------------------------------------------------- */
 function formatWon(n) {
-  return `${n.toLocaleString("ko-KR")}원`;
+  return `${Math.round(n).toLocaleString("ko-KR")}원`;
 }
 
 function formatNumber(n) {
@@ -628,30 +895,66 @@ function formatPercent(n) {
 }
 
 /* ---------------------------------------------------------
-   9. KPI / 차트 렌더링 (Mock)
+   9. 핵심지표(KPI) 계산 / 렌더링
+   ---------------------------------------------------------
+   저장은 원시 지표(impressions/clicks/cost/conversions/revenue)로만 하고,
+   CTR/CPC/CVR/ROAS/CPA는 항상 이 값들로부터 계산한다 (GFA 실데이터,
+   SA Mock 데이터 모두 동일한 계산식을 탄다).
 --------------------------------------------------------- */
+function withDerivedMetrics(totals) {
+  const { impressions, clicks, cost, conversions, revenue } = totals;
+  return {
+    impressions,
+    clicks,
+    cost,
+    conversions,
+    revenue,
+    ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+    cpc: clicks > 0 ? cost / clicks : 0,
+    cvr: clicks > 0 ? (conversions / clicks) * 100 : 0,
+    roas: cost > 0 ? Math.round((revenue / cost) * 100) : 0,
+    cpa: conversions > 0 ? Math.round(cost / conversions) : 0
+  };
+}
+
 const KPI_DEFS = [
-  { key: "cost", label: "광고비", format: formatWon },
-  { key: "revenue", label: "광고매출", format: formatWon },
-  { key: "roas", label: "ROAS", format: (n) => `${n}%` },
+  { key: "impressions", label: "노출수", format: formatNumber },
   { key: "clicks", label: "클릭수", format: formatNumber },
-  { key: "ctr", label: "CTR", format: formatPercent },
+  { key: "ctr", label: "클릭률", format: formatPercent },
+  { key: "cpc", label: "CPC", format: formatWon },
+  { key: "cost", label: "총비용", format: formatWon },
   { key: "conversions", label: "전환수", format: formatNumber },
-  { key: "cvr", label: "CVR", format: formatPercent },
-  { key: "cpa", label: "CPA", format: formatWon }
+  { key: "cvr", label: "전환율", format: formatPercent },
+  { key: "revenue", label: "전환매출액", format: formatWon },
+  { key: "roas", label: "ROAS", format: (n) => `${n}%` },
+  { key: "cpa", label: "전환당비용", format: formatWon }
 ];
 
-function renderKpiCards(kpi) {
+function renderKpiCards(current, comparison) {
   kpiGrid.innerHTML = "";
   KPI_DEFS.forEach((def) => {
     const card = document.createElement("div");
     card.className = "kpi-card";
     card.innerHTML = `
       <span class="kpi-label">${def.label}</span>
-      <span class="kpi-value">${def.format(kpi[def.key])}</span>
+      <span class="kpi-value">${def.format(current[def.key])}</span>
+      ${comparison ? buildDeltaHtml(current[def.key], comparison[def.key]) : ""}
     `;
     kpiGrid.appendChild(card);
   });
+}
+
+function buildDeltaHtml(current, previous) {
+  if (!previous) {
+    return current ? `<span class="kpi-sub up">신규</span>` : "";
+  }
+  const change = ((current - previous) / previous) * 100;
+  if (Math.abs(change) < 0.05) {
+    return `<span class="kpi-sub">전기 대비 변동 없음</span>`;
+  }
+  const direction = change > 0 ? "up" : "down";
+  const arrow = change > 0 ? "▲" : "▼";
+  return `<span class="kpi-sub ${direction}">${arrow} ${Math.abs(change).toFixed(1)}% 전기 대비</span>`;
 }
 
 function generateDailySeries(baseCost, baseRevenue, days = 14) {
@@ -660,10 +963,10 @@ function generateDailySeries(baseCost, baseRevenue, days = 14) {
   const revenue = [];
   const roas = [];
 
-  const today = new Date(2026, 6, 31); // 2026-07-31 기준
+  const endDate = state.analysisPeriod ? new Date(`${state.analysisPeriod.to}T00:00:00`) : new Date();
 
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
+    const d = new Date(endDate);
     d.setDate(d.getDate() - i);
     labels.push(`${d.getMonth() + 1}/${d.getDate()}`);
 
@@ -674,14 +977,18 @@ function generateDailySeries(baseCost, baseRevenue, days = 14) {
 
     cost.push(dailyCost);
     revenue.push(dailyRevenue);
-    roas.push(Math.round((dailyRevenue / dailyCost) * 100));
+    roas.push(dailyCost > 0 ? Math.round((dailyRevenue / dailyCost) * 100) : 0);
   }
 
   return { labels, cost, revenue, roas };
 }
 
 function renderCharts(kpi) {
-  const series = generateDailySeries(kpi.cost, kpi.revenue);
+  const periodDays = state.analysisPeriod
+    ? daysBetweenInclusive(state.analysisPeriod.from, state.analysisPeriod.to)
+    : 14;
+  const chartDays = Math.min(Math.max(periodDays, 1), 60);
+  const series = generateDailySeries(kpi.cost, kpi.revenue, chartDays);
 
   destroyChart("spend");
   destroyChart("revenue");
