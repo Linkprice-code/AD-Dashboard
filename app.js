@@ -19,6 +19,7 @@ const SUPABASE_CONFIG = {
 const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertiser-login`;
 const GFA_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-upload`;
 const GFA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-performance`;
+const SA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -63,12 +64,12 @@ const CHANNEL_LABELS = {
   GFA: "GFA"
 };
 
-const SA_MOCK_TOTALS = {
-  impressions: 1018000,
-  clicks: 24530,
-  cost: 12450000,
-  conversions: 1840,
-  revenue: 85300000
+// sa-performance가 group_by="type"로 돌려주는 네이버 캠페인 유형 코드 <-> 캠페인 유형별
+// 필터 탭(data-campaign-type)의 매핑. 네이버 SA 표준 리포트 기준 코드다.
+const SA_CAMPAIGN_TYPE_TO_NAVER = {
+  powerlink: "WEB_SITE",
+  shopping: "SHOPPING",
+  brand: "BRAND_SEARCH"
 };
 
 /* ---------------------------------------------------------
@@ -340,6 +341,46 @@ async function fetchGfaPerformance(rawType, { dateFrom, dateTo, campaign } = {})
   return payload;
 }
 
+async function fetchSaPerformance(groupBy, { dateFrom, dateTo } = {}) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({
+        group_by: groupBy,
+        date_from: dateFrom,
+        date_to: dateTo
+      })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
 /* ---------------------------------------------------------
    5. DOM 참조
 --------------------------------------------------------- */
@@ -434,6 +475,7 @@ const state = {
   comparisonPeriod: null,
   breakdownRawType: "campaign",
   breakdownRows: [],
+  campaignTypeRows: [],
   breakdownSort: { key: "cost", dir: "desc" },
   overviewRenderToken: 0
 };
@@ -782,37 +824,100 @@ async function renderOverview() {
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
   } else {
-    renderSaOverview();
+    await renderSaOverview();
   }
 }
 
-function renderSaOverview() {
-  overviewEmptyNotice.hidden = true;
+/* ---------------------------------------------------------
+   6-1a. SA 성과 대시보드 - 실데이터 (sa-sync가 매일 동기화해둔 sa_campaign_daily 기준)
+   ---------------------------------------------------------
+   광고그룹(그룹별) 단위는 아직 범위 밖이라, 그 탭을 고르면 계속 안내 문구가 나온다.
+--------------------------------------------------------- */
+async function renderSaOverview() {
+  const token = ++state.overviewRenderToken;
+  const { from, to } = state.analysisPeriod;
+  const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
 
-  const current = withDerivedMetrics(SA_MOCK_TOTALS);
-  renderKpiCards(current, null);
+  const [currentResult, comparisonResult] = await Promise.all([
+    fetchSaPerformance("type", { dateFrom: from, dateTo: to }),
+    fetchSaPerformance("type", { dateFrom: compareFrom, dateTo: compareTo })
+  ]);
 
-  renderCampaignTypePlaceholder();
-  renderSaBreakdownPlaceholder();
+  if (token !== state.overviewRenderToken) return;
+
+  if (!currentResult.success) {
+    overviewEmptyNotice.hidden = false;
+    overviewEmptyNotice.textContent = currentResult.message;
+    renderKpiCards(withDerivedMetrics({ impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }), null);
+    state.campaignTypeRows = [];
+    renderCampaignTypeRows();
+    state.breakdownRows = [];
+    breakdownTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
+    return;
+  }
+
+  const currentTotals = sumRawTotals(currentResult.rows);
+  const comparisonTotals = comparisonResult.success ? sumRawTotals(comparisonResult.rows) : null;
+  const hasData = currentResult.rows.length > 0;
+
+  overviewEmptyNotice.hidden = hasData;
+  if (!hasData) {
+    overviewEmptyNotice.textContent =
+      "표시할 데이터가 없습니다. 네이버 SA 자동 동기화가 아직 실행되지 않았거나, 선택한 기간에 데이터가 없습니다.";
+  }
+
+  renderKpiCards(
+    withDerivedMetrics(currentTotals),
+    comparisonTotals ? withDerivedMetrics(comparisonTotals) : null
+  );
+
+  state.campaignTypeRows = currentResult.rows;
+  renderCampaignTypeRows();
+
+  if (state.breakdownRawType === "campaign") {
+    await loadSaBreakdownData();
+  } else {
+    renderSaBreakdownPlaceholder();
+  }
 }
 
 /* ---------------------------------------------------------
    6-1b. 캠페인 유형별 성과 (SA 전용: 파워링크 / 쇼핑검색 / 브랜드검색)
-   ---------------------------------------------------------
-   네이버 SA API 연동 전이라 아직 실데이터는 없다. 탭 구조만 미리 만들어두고
-   자리를 잡아둔다 (item 4: 상품별 데이터처럼 이후 수기 업로드로 채워질 예정).
 --------------------------------------------------------- */
 campaignTypeFilter.addEventListener("click", (e) => {
   const btn = e.target.closest(".breakdown-filter-btn");
   if (!btn || btn.classList.contains("active")) return;
 
   campaignTypeFilter.querySelectorAll(".breakdown-filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
-  renderCampaignTypePlaceholder();
+  renderCampaignTypeRows();
 });
 
-function renderCampaignTypePlaceholder() {
-  campaignTypeTableBody.innerHTML =
-    '<tr><td colspan="9" class="grouped-empty">네이버 SA API 연동 후 제공됩니다.</td></tr>';
+function renderCampaignTypeRows() {
+  const activeBtn = campaignTypeFilter.querySelector(".breakdown-filter-btn.active");
+  const key = activeBtn ? activeBtn.dataset.campaignType : "powerlink";
+  const naverType = SA_CAMPAIGN_TYPE_TO_NAVER[key];
+  const row = state.campaignTypeRows.find((r) => r.name === naverType);
+  const label = activeBtn ? activeBtn.textContent : "";
+
+  if (!row) {
+    campaignTypeTableBody.innerHTML =
+      '<tr><td colspan="9" class="grouped-empty">이 기간에 해당 유형 데이터가 없습니다.</td></tr>';
+    return;
+  }
+
+  campaignTypeTableBody.innerHTML = `
+    <tr>
+      <td>${escapeHtml(label)}</td>
+      <td>${formatWon(row.cost)}</td>
+      <td>${formatWon(row.revenue)}</td>
+      <td>${row.roas}%</td>
+      <td>${formatNumber(row.clicks)}</td>
+      <td>${row.ctr.toFixed(2)}%</td>
+      <td>${formatNumber(row.conversions)}</td>
+      <td>${row.cvr.toFixed(2)}%</td>
+      <td>${formatWon(row.cpa)}</td>
+    </tr>
+  `;
 }
 
 /* ---------------------------------------------------------
@@ -888,6 +993,8 @@ breakdownFilter.addEventListener("click", (e) => {
 
   if (state.currentChannel === "GFA") {
     loadBreakdownData();
+  } else if (state.breakdownRawType === "campaign") {
+    loadSaBreakdownData();
   } else {
     renderSaBreakdownPlaceholder();
   }
@@ -928,10 +1035,33 @@ async function loadBreakdownData() {
   renderBreakdownRows();
 }
 
+async function loadSaBreakdownData() {
+  const token = ++state.overviewRenderToken;
+  breakdownTableBody.innerHTML = '<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>';
+
+  const result = await fetchSaPerformance("campaign", {
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!result.success) {
+    state.breakdownRows = [];
+    breakdownTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    updateSortIndicators();
+    return;
+  }
+
+  state.breakdownRows = result.rows;
+  renderBreakdownRows();
+}
+
+// 그룹별(광고그룹) 단위는 아직 범위 밖이라 안내 문구만 보여준다.
 function renderSaBreakdownPlaceholder() {
   state.breakdownRows = [];
   breakdownTableBody.innerHTML =
-    '<tr><td colspan="9" class="grouped-empty">네이버 SA API 연동 후 제공됩니다.</td></tr>';
+    '<tr><td colspan="9" class="grouped-empty">광고그룹별 데이터는 다음 업데이트에서 제공될 예정입니다.</td></tr>';
   updateSortIndicators();
 }
 
@@ -1160,16 +1290,11 @@ function updateSortIndicators() {
 async function renderTrendView() {
   trendTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 그래프 추이`;
 
-  if (state.currentChannel !== "GFA") {
-    renderCharts(SA_MOCK_TOTALS);
-    return;
-  }
-
   const token = ++state.overviewRenderToken;
-  const result = await fetchGfaPerformance("campaign", {
-    dateFrom: state.analysisPeriod.from,
-    dateTo: state.analysisPeriod.to
-  });
+  const result =
+    state.currentChannel === "GFA"
+      ? await fetchGfaPerformance("campaign", { dateFrom: state.analysisPeriod.from, dateTo: state.analysisPeriod.to })
+      : await fetchSaPerformance("campaign", { dateFrom: state.analysisPeriod.from, dateTo: state.analysisPeriod.to });
 
   if (token !== state.overviewRenderToken) return;
 
