@@ -93,17 +93,40 @@
         <h2 class="view-title" id="overviewTitle">SA 성과 대시보드</h2>
 
         <div class="period-bar">
-          <div class="period-field">
+          <div class="period-mode" id="periodMode" role="tablist">
+            <button type="button" class="period-mode-btn active" data-mode="custom">직접선택</button>
+            <button type="button" class="period-mode-btn" data-mode="week">주별</button>
+            <button type="button" class="period-mode-btn" data-mode="month">월별</button>
+          </div>
+
+          <div class="period-field" id="analysisCustomField">
             <span class="period-label">분석기간</span>
             <input type="date" id="analysisFromInput" class="period-input">
             <span class="period-sep">~</span>
             <input type="date" id="analysisToInput" class="period-input">
           </div>
-          <div class="period-field">
+          <div class="period-field" id="analysisWeekField" hidden>
+            <span class="period-label">분석기간(주)</span>
+            <input type="week" id="analysisWeekInput" class="period-input">
+          </div>
+          <div class="period-field" id="analysisMonthField" hidden>
+            <span class="period-label">분석기간(월)</span>
+            <input type="month" id="analysisMonthInput" class="period-input">
+          </div>
+
+          <div class="period-field" id="compareCustomField">
             <span class="period-label">비교기간</span>
             <input type="date" id="compareFromInput" class="period-input">
             <span class="period-sep">~</span>
             <input type="date" id="compareToInput" class="period-input">
+          </div>
+          <div class="period-field" id="compareWeekField" hidden>
+            <span class="period-label">비교기간(주)</span>
+            <input type="week" id="compareWeekInput" class="period-input">
+          </div>
+          <div class="period-field" id="compareMonthField" hidden>
+            <span class="period-label">비교기간(월)</span>
+            <input type="month" id="compareMonthInput" class="period-input">
           </div>
         </div>
 
@@ -111,6 +134,39 @@
 
         <div class="kpi-grid" id="kpiGrid"></div>
 
+        <!-- SA 전용: 캠페인 유형별 성과 (파워링크 / 쇼핑검색 / 브랜드검색) -->
+        <div class="breakdown-section" id="campaignTypeSection" hidden>
+          <div class="breakdown-card">
+            <div class="breakdown-header">
+              <h3 class="breakdown-title">캠페인 유형별 성과</h3>
+              <div class="breakdown-filter" id="campaignTypeFilter" role="tablist">
+                <button type="button" class="breakdown-filter-btn active" data-campaign-type="powerlink">파워링크</button>
+                <button type="button" class="breakdown-filter-btn" data-campaign-type="shopping">쇼핑검색</button>
+                <button type="button" class="breakdown-filter-btn" data-campaign-type="brand">브랜드검색</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>캠페인 유형</th>
+                    <th>광고비</th>
+                    <th>광고매출</th>
+                    <th>ROAS</th>
+                    <th>클릭수</th>
+                    <th>CTR</th>
+                    <th>전환수</th>
+                    <th>CVR</th>
+                    <th>CPA</th>
+                  </tr>
+                </thead>
+                <tbody id="campaignTypeTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 캠페인별 / 그룹별(/ GFA만 ADVoost 쇼핑) 성과 -->
         <div class="breakdown-section">
           <div class="breakdown-card">
             <div class="breakdown-header">
@@ -118,7 +174,7 @@
               <div class="breakdown-filter" id="breakdownFilter" role="tablist">
                 <button type="button" class="breakdown-filter-btn active" data-raw-type="campaign">캠페인별</button>
                 <button type="button" class="breakdown-filter-btn" data-raw-type="adgroup">그룹별</button>
-                <button type="button" class="breakdown-filter-btn" data-raw-type="adv">ADVoost 쇼핑</button>
+                <button type="button" class="breakdown-filter-btn gfa-only-tab" data-raw-type="adv">ADVoost 쇼핑</button>
               </div>
             </div>
             <span class="breakdown-hint">컬럼 이름을 클릭하면 그 지표로 오름차순/내림차순 정렬됩니다</span>
