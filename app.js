@@ -417,23 +417,21 @@ const viewUpload = document.getElementById("view-upload");
 const viewTrend = document.getElementById("view-trend");
 const trendTitle = document.getElementById("trendTitle");
 
-const periodMode = document.getElementById("periodMode");
-const analysisCustomField = document.getElementById("analysisCustomField");
-const analysisWeekField = document.getElementById("analysisWeekField");
-const analysisMonthField = document.getElementById("analysisMonthField");
-const analysisFromInput = document.getElementById("analysisFromInput");
-const analysisToInput = document.getElementById("analysisToInput");
-const analysisWeekMonthInput = document.getElementById("analysisWeekMonthInput");
+const analysisYearSelect = document.getElementById("analysisYearSelect");
+const analysisMonthSelect = document.getElementById("analysisMonthSelect");
 const analysisWeekSelect = document.getElementById("analysisWeekSelect");
-const analysisMonthInput = document.getElementById("analysisMonthInput");
-const compareCustomField = document.getElementById("compareCustomField");
-const compareWeekField = document.getElementById("compareWeekField");
-const compareMonthField = document.getElementById("compareMonthField");
-const compareFromInput = document.getElementById("compareFromInput");
-const compareToInput = document.getElementById("compareToInput");
-const compareWeekMonthInput = document.getElementById("compareWeekMonthInput");
+const analysisDaySelect = document.getElementById("analysisDaySelect");
+const analysisConfirmBtn = document.getElementById("analysisConfirmBtn");
+const analysisThisMonthBtn = document.getElementById("analysisThisMonthBtn");
+const analysisAllYearBtn = document.getElementById("analysisAllYearBtn");
+const analysisResetBtn = document.getElementById("analysisResetBtn");
+
+const compareYearSelect = document.getElementById("compareYearSelect");
+const compareMonthSelect = document.getElementById("compareMonthSelect");
 const compareWeekSelect = document.getElementById("compareWeekSelect");
-const compareMonthInput = document.getElementById("compareMonthInput");
+const compareDaySelect = document.getElementById("compareDaySelect");
+const compareConfirmBtn = document.getElementById("compareConfirmBtn");
+const compareResetBtn = document.getElementById("compareResetBtn");
 
 const viewModel = document.getElementById("view-model");
 const modelCardGrid = document.getElementById("modelCardGrid");
@@ -470,7 +468,6 @@ const state = {
   charts: {},
   currentChannel: "SA",
   currentView: "overview",
-  periodMode: "custom",
   analysisPeriod: null,
   comparisonPeriod: null,
   breakdownRawType: "campaign",
@@ -543,7 +540,7 @@ function computeMonthWeeks(year, month) {
     }
     if (chunkEnd > last) chunkEnd.setTime(last.getTime());
 
-    weeks.push({ label: `${weekNum}주차`, from: toISODate(cursor), to: toISODate(chunkEnd) });
+    weeks.push({ label: `${month}월 ${weekNum}주차`, from: toISODate(cursor), to: toISODate(chunkEnd) });
 
     cursor = new Date(chunkEnd);
     cursor.setDate(cursor.getDate() + 1);
@@ -553,43 +550,75 @@ function computeMonthWeeks(year, month) {
   return weeks;
 }
 
-function findWeekContaining(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  const year = d.getFullYear();
-  const month = d.getMonth() + 1;
+function daysInMonthCount(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+// year/fromMonth~toMonth(둘 다 1-12) 범위의 1일부터 말일까지. 그 범위 끝이 아직 안 지난
+// 미래 날짜를 포함하면(=오늘이 걸쳐 있는 달이면) 어제까지로 잘라서, 안 끝난 오늘 데이터가
+// 섞여 어색하게 보이지 않게 한다.
+function monthsToRange(year, fromMonth, toMonth) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const first = new Date(year, fromMonth - 1, 1);
+  const lastOfToMonth = new Date(year, toMonth, 0);
+  const end = lastOfToMonth > yesterday ? yesterday : lastOfToMonth;
+
+  return { from: toISODate(first), to: toISODate(end) };
+}
+
+function populateYearOptions(selectEl, year) {
+  selectEl.innerHTML = [year - 1, year, year + 1].map((y) => `<option value="${y}">${y}년</option>`).join("");
+  selectEl.value = String(year);
+}
+
+function populateMonthOptions(selectEl, month) {
+  selectEl.innerHTML = Array.from({ length: 12 }, (_, i) => i + 1).map((m) => `<option value="${m}">${m}월</option>`).join("");
+  selectEl.value = String(month);
+}
+
+function populateWeekOptions(selectEl, year, month) {
   const weeks = computeMonthWeeks(year, month);
-  const week = weeks.find((w) => dateStr >= w.from && dateStr <= w.to) || weeks[0];
-  return { year, month, week };
+  selectEl.innerHTML =
+    '<option value="">주차별 선택 (선택 안 함 = 월 전체)</option>' +
+    weeks.map((w) => `<option value="${w.label}">${w.label}</option>`).join("");
+  selectEl.value = "";
 }
 
-function formatShortDate(iso) {
-  const [, m, d] = iso.split("-");
-  return `${Number(m)}/${Number(d)}`;
+function populateDayOptions(selectEl, year, month) {
+  const days = daysInMonthCount(year, month);
+  selectEl.innerHTML =
+    '<option value="">일별 선택</option>' +
+    Array.from({ length: days }, (_, i) => i + 1).map((d) => `<option value="${d}">${month}월 ${d}일</option>`).join("");
+  selectEl.value = "";
 }
 
-function populateWeekSelect(selectEl, year, month) {
-  const weeks = computeMonthWeeks(year, month);
-  selectEl.innerHTML = weeks
-    .map((w) => `<option value="${w.from}|${w.to}">${w.label} (${formatShortDate(w.from)}~${formatShortDate(w.to)})</option>`)
-    .join("");
+// 연/월/주차/일 드롭다운의 현재 선택값을 실제 {from, to} 날짜 범위로 바꾼다.
+// 일 > 주차 > (둘 다 안 골랐으면) 월 전체 순서로 우선한다.
+function readPickerRange(yearSelect, monthSelect, weekSelect, daySelect) {
+  const year = Number(yearSelect.value);
+  const month = Number(monthSelect.value);
+  const day = daySelect.value;
+  const weekLabel = weekSelect.value;
+
+  if (day) {
+    const d = `${year}-${String(month).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`;
+    return { from: d, to: d };
+  }
+  if (weekLabel) {
+    const weeks = computeMonthWeeks(year, month);
+    const w = weeks.find((w) => w.label === weekLabel);
+    if (w) return { from: w.from, to: w.to };
+  }
+  return monthsToRange(year, month, month);
 }
 
-function selectWeekOption(selectEl, week) {
-  selectEl.value = `${week.from}|${week.to}`;
-}
-
-// <input type="month">은 "YYYY-MM" 값을 준다.
-function toMonthString(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthStringToRange(monthStr) {
-  const [yearStr, monthStr2] = monthStr.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr2);
-  const first = new Date(year, month - 1, 1);
-  const last = new Date(year, month, 0); // 다음 달 0일 = 이번 달 마지막 날
-  return { from: toISODate(first), to: toISODate(last) };
+function setPickerToMonth(yearSelect, monthSelect, weekSelect, daySelect, year, month) {
+  populateYearOptions(yearSelect, year);
+  populateMonthOptions(monthSelect, month);
+  populateWeekOptions(weekSelect, year, month);
+  populateDayOptions(daySelect, year, month);
 }
 
 /* ---------------------------------------------------------
@@ -641,10 +670,11 @@ function showDashboard(advertiser) {
 
   state.analysisPeriod = defaultAnalysisPeriod();
   state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
-  analysisFromInput.value = state.analysisPeriod.from;
-  analysisToInput.value = state.analysisPeriod.to;
-  compareFromInput.value = state.comparisonPeriod.from;
-  compareToInput.value = state.comparisonPeriod.to;
+
+  const today = new Date();
+  setPickerToMonth(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect, today.getFullYear(), today.getMonth() + 1);
+  const compareDate = new Date(`${state.comparisonPeriod.from}T00:00:00`);
+  setPickerToMonth(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect, compareDate.getFullYear(), compareDate.getMonth() + 1);
 
   applyChannelVisibility();
   renderSidebarMenu();
@@ -659,120 +689,81 @@ function refreshCurrentPeriodView() {
   }
 }
 
-// 분석기간을 바꾸면 비교기간도 "그 직전 같은 길이"로 자동 갱신한다
-// (사용자가 비교기간을 따로 골라둔 상태였어도, 분석기간이 바뀌면 기본값으로 다시 맞춘다).
-analysisFromInput.addEventListener("change", handlePeriodChange);
-analysisToInput.addEventListener("change", handlePeriodChange);
-
-function handlePeriodChange() {
-  const from = analysisFromInput.value;
-  const to = analysisToInput.value;
-  if (!from || !to || from > to) return;
-
-  state.analysisPeriod = { from, to };
-  state.comparisonPeriod = computeComparisonPeriod(from, to);
-  compareFromInput.value = state.comparisonPeriod.from;
-  compareToInput.value = state.comparisonPeriod.to;
-
-  refreshCurrentPeriodView();
-}
-
-// 비교기간은 사용자가 직접 선택할 수도 있다 - 선택하면 그 값을 그대로 쓴다.
-compareFromInput.addEventListener("change", handleComparePeriodChange);
-compareToInput.addEventListener("change", handleComparePeriodChange);
-
-function handleComparePeriodChange() {
-  const from = compareFromInput.value;
-  const to = compareToInput.value;
-  if (!from || !to || from > to) return;
-
-  state.comparisonPeriod = { from, to };
-  refreshCurrentPeriodView();
-}
-
 /* ---------------------------------------------------------
-   6-0. 기간 단위: 직접선택 / 주별 / 월별
+   6-0. 분석기간 / 비교기간 선택 - 연도 → 월 → (선택)주차 → (선택)일
    ---------------------------------------------------------
-   셋 중 하나를 고르면 분석기간+비교기간 입력 UI가 통째로 바뀐다.
-   주별/월별을 고르면 분석기간은 이번 주(달), 비교기간은 저번 주(달)로
-   기본값이 맞춰지고, 각각 따로 다시 고를 수도 있다.
+   드롭다운을 고르는 것만으로는 바로 조회하지 않고, "확인"을 눌러야
+   실제로 반영된다 (고를 때마다 매번 다시 불러오면 느려지기 때문).
+   주차와 일은 서로 배타적이다 - 하나를 고르면 다른 하나는 비워진다.
+   둘 다 안 고르면 그 달 전체가 기간이 된다.
 --------------------------------------------------------- */
-periodMode.addEventListener("click", (e) => {
-  const btn = e.target.closest(".period-mode-btn");
-  if (!btn || btn.classList.contains("active")) return;
-  setPeriodMode(btn.dataset.mode);
-});
-
-function setPeriodMode(mode) {
-  state.periodMode = mode;
-  periodMode.querySelectorAll(".period-mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
-
-  analysisCustomField.hidden = mode !== "custom";
-  analysisWeekField.hidden = mode !== "week";
-  analysisMonthField.hidden = mode !== "month";
-  compareCustomField.hidden = mode !== "custom";
-  compareWeekField.hidden = mode !== "week";
-  compareMonthField.hidden = mode !== "month";
-
-  if (mode === "week") {
-    const today = toISODate(new Date());
-    const current = findWeekContaining(today);
-    analysisWeekMonthInput.value = `${current.year}-${String(current.month).padStart(2, "0")}`;
-    populateWeekSelect(analysisWeekSelect, current.year, current.month);
-    selectWeekOption(analysisWeekSelect, current.week);
-
-    const priorDate = new Date(`${current.week.from}T00:00:00`);
-    priorDate.setDate(priorDate.getDate() - 7);
-    const prior = findWeekContaining(toISODate(priorDate));
-    compareWeekMonthInput.value = `${prior.year}-${String(prior.month).padStart(2, "0")}`;
-    populateWeekSelect(compareWeekSelect, prior.year, prior.month);
-    selectWeekOption(compareWeekSelect, prior.week);
-
-    applyWeekPeriods();
-  } else if (mode === "month") {
-    const now = new Date();
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    analysisMonthInput.value = toMonthString(now);
-    compareMonthInput.value = toMonthString(lastMonth);
-    applyMonthPeriods();
-  } else {
-    analysisFromInput.value = state.analysisPeriod.from;
-    analysisToInput.value = state.analysisPeriod.to;
-    compareFromInput.value = state.comparisonPeriod.from;
-    compareToInput.value = state.comparisonPeriod.to;
-  }
+function onPickerMonthChange(yearSelect, monthSelect, weekSelect, daySelect) {
+  const year = Number(yearSelect.value);
+  const month = Number(monthSelect.value);
+  populateWeekOptions(weekSelect, year, month);
+  populateDayOptions(daySelect, year, month);
 }
 
-function applyWeekPeriods() {
-  if (!analysisWeekSelect.value || !compareWeekSelect.value) return;
-  const [aFrom, aTo] = analysisWeekSelect.value.split("|");
-  const [cFrom, cTo] = compareWeekSelect.value.split("|");
-  state.analysisPeriod = { from: aFrom, to: aTo };
-  state.comparisonPeriod = { from: cFrom, to: cTo };
+analysisYearSelect.addEventListener("change", () =>
+  onPickerMonthChange(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect)
+);
+analysisMonthSelect.addEventListener("change", () =>
+  onPickerMonthChange(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect)
+);
+analysisWeekSelect.addEventListener("change", () => {
+  if (analysisWeekSelect.value) analysisDaySelect.value = "";
+});
+analysisDaySelect.addEventListener("change", () => {
+  if (analysisDaySelect.value) analysisWeekSelect.value = "";
+});
+analysisConfirmBtn.addEventListener("click", () => {
+  state.analysisPeriod = readPickerRange(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect);
   refreshCurrentPeriodView();
-}
+});
 
-function applyMonthPeriods() {
-  if (!analysisMonthInput.value || !compareMonthInput.value) return;
-  state.analysisPeriod = monthStringToRange(analysisMonthInput.value);
-  state.comparisonPeriod = monthStringToRange(compareMonthInput.value);
+compareYearSelect.addEventListener("change", () =>
+  onPickerMonthChange(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect)
+);
+compareMonthSelect.addEventListener("change", () =>
+  onPickerMonthChange(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect)
+);
+compareWeekSelect.addEventListener("change", () => {
+  if (compareWeekSelect.value) compareDaySelect.value = "";
+});
+compareDaySelect.addEventListener("change", () => {
+  if (compareDaySelect.value) compareWeekSelect.value = "";
+});
+compareConfirmBtn.addEventListener("click", () => {
+  state.comparisonPeriod = readPickerRange(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect);
   refreshCurrentPeriodView();
-}
+});
 
-analysisWeekMonthInput.addEventListener("change", () => {
-  const [y, m] = analysisWeekMonthInput.value.split("-").map(Number);
-  populateWeekSelect(analysisWeekSelect, y, m);
-  applyWeekPeriods();
+// 분석기간 바로가기: 이번달 보기 / 전체 선택(연도 전체) / 전체 해제(이번달로 되돌리기)
+analysisThisMonthBtn.addEventListener("click", () => {
+  const now = new Date();
+  setPickerToMonth(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect, now.getFullYear(), now.getMonth() + 1);
+  state.analysisPeriod = monthsToRange(now.getFullYear(), now.getMonth() + 1, now.getMonth() + 1);
+  refreshCurrentPeriodView();
 });
-compareWeekMonthInput.addEventListener("change", () => {
-  const [y, m] = compareWeekMonthInput.value.split("-").map(Number);
-  populateWeekSelect(compareWeekSelect, y, m);
-  applyWeekPeriods();
+analysisAllYearBtn.addEventListener("click", () => {
+  const year = Number(analysisYearSelect.value);
+  state.analysisPeriod = monthsToRange(year, 1, 12);
+  refreshCurrentPeriodView();
 });
-analysisWeekSelect.addEventListener("change", applyWeekPeriods);
-compareWeekSelect.addEventListener("change", applyWeekPeriods);
-analysisMonthInput.addEventListener("change", applyMonthPeriods);
-compareMonthInput.addEventListener("change", applyMonthPeriods);
+analysisResetBtn.addEventListener("click", () => {
+  const now = new Date();
+  setPickerToMonth(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect, now.getFullYear(), now.getMonth() + 1);
+  state.analysisPeriod = monthsToRange(now.getFullYear(), now.getMonth() + 1, now.getMonth() + 1);
+  refreshCurrentPeriodView();
+});
+
+// 비교기간 초기화: 분석기간 기준으로 자동 계산한 "직전 같은 길이" 기간으로 되돌린다.
+compareResetBtn.addEventListener("click", () => {
+  state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
+  const d = new Date(`${state.comparisonPeriod.from}T00:00:00`);
+  setPickerToMonth(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect, d.getFullYear(), d.getMonth() + 1);
+  refreshCurrentPeriodView();
+});
 
 /* ---------------------------------------------------------
    6-1. 채널(SA / GFA) 전환
