@@ -735,11 +735,41 @@ function escapeAttr(str) {
 
 /* ---------------------------------------------------------
    7-2. GFA 데이터 업로드 (CSV, raw_type별 3개 폼)
+   ---------------------------------------------------------
+   네이버 GFA에서 그대로 다운로드한 리포트는 헤더가 한글이고
+   ("캠페인 이름", "노출수", "총비용", "구매완료 수", "구매완료 전환매출액" 등),
+   전환/매출 관련 컬럼도 여러 종류(총 전환수, 구매완료 수, 회원가입 수...)가
+   같이 들어있다. 우리는 그중 "구매완료" 기준만 쓰기로 했으므로, 아래
+   GFA_RAW_TYPE_HEADER_ALIASES에서 내부 필드(date/campaign/...)마다
+   실제로 올 수 있는 헤더 이름 후보들을 등록해두고, 업로드된 CSV 헤더에서
+   그중 하나라도 찾아서 매칭한다. 우리가 만든 템플릿(date, campaign, ...
+   영문 헤더)도 계속 지원한다.
 --------------------------------------------------------- */
 const GFA_RAW_TYPE_COLUMNS = {
   campaign: ["date", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
   adgroup: ["date", "campaign", "ad_group", "impressions", "clicks", "cost", "conversions", "revenue"],
   adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"]
+};
+
+const GFA_RAW_TYPE_LABEL = {
+  campaign: "캠페인",
+  adgroup: "그룹",
+  adv: "ADV"
+};
+
+// 내부 필드명 -> 실제 CSV에 올 수 있는 헤더 이름 후보 (전부 소문자/trim 비교)
+const GFA_HEADER_ALIASES = {
+  date: ["date", "기간", "날짜", "일자"],
+  campaign: ["campaign", "캠페인 이름", "캠페인명"],
+  ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명"],
+  product: ["product", "상품명", "상품 이름"],
+  impressions: ["impressions", "노출수"],
+  clicks: ["clicks", "클릭수"],
+  cost: ["cost", "총비용", "비용"],
+  // 전환/매출은 종류가 여러 개(총 전환수, 회원가입 수 등) 나오는데
+  // "구매완료" 기준만 쓴다.
+  conversions: ["conversions", "구매완료 수", "구매완료수"],
+  revenue: ["revenue", "구매완료 전환매출액", "구매완료 매출액", "구매완료전환매출액"]
 };
 
 const GFA_RAW_TYPE_TEMPLATE_CSV = {
@@ -754,7 +784,8 @@ const GFA_RAW_TYPE_TEMPLATE_CSV = {
     "2026-08-01,ADVoost,15200,320,540000,18,3200000\n"
 };
 
-const GFA_MAX_UPLOAD_ROWS = 5000;
+const GFA_MAX_UPLOAD_ROWS = 20000;
+const GFA_NUMERIC_FIELDS = ["impressions", "clicks", "cost", "conversions", "revenue"];
 
 function splitCsvLine(line) {
   const cells = [];
@@ -785,6 +816,34 @@ function splitCsvLine(line) {
   return cells;
 }
 
+// "2026.08.17." / "2026.08.17. ~ 2026.08.31." (네이버 "기간" 컬럼) -> "2026-08-17"
+// 이미 "2026-08-17" 형식이면 그대로 둔다. 범위로 나오면 시작일을 쓴다.
+function normalizeGfaDate(raw) {
+  const trimmed = String(raw ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const match = trimmed.match(/(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?/);
+  if (match) {
+    const [, y, m, d] = match;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return trimmed;
+}
+
+function toGfaNumber(raw) {
+  const cleaned = String(raw ?? "").replace(/,/g, "").trim();
+  return cleaned === "" ? 0 : Number(cleaned);
+}
+
+// header(첫 줄) 안에서 후보 이름들 중 하나라도 있는 컬럼의 인덱스를 찾는다.
+function findColumnIndex(header, aliases) {
+  for (const alias of aliases) {
+    const idx = header.indexOf(alias.trim().toLowerCase());
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
 function parseGfaCsv(text, requiredColumns) {
   const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
   if (lines.length < 2) {
@@ -792,25 +851,37 @@ function parseGfaCsv(text, requiredColumns) {
   }
 
   const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
-  const missing = requiredColumns.filter((col) => !header.includes(col));
+
+  const columnIndex = {};
+  const missing = [];
+  requiredColumns.forEach((field) => {
+    const idx = findColumnIndex(header, GFA_HEADER_ALIASES[field] || [field]);
+    if (idx === -1) {
+      missing.push((GFA_HEADER_ALIASES[field] || [field])[0]);
+    } else {
+      columnIndex[field] = idx;
+    }
+  });
+
   if (missing.length > 0) {
-    throw new Error(`CSV 헤더에 다음 컬럼이 없습니다: ${missing.join(", ")}`);
+    throw new Error(`CSV에서 다음 컬럼을 찾지 못했습니다: ${missing.join(", ")}`);
   }
 
   return lines.slice(1).map((line) => {
     const cells = splitCsvLine(line);
-    const raw = {};
-    header.forEach((col, i) => {
-      raw[col] = (cells[i] ?? "").trim();
+    const row = {};
+
+    requiredColumns.forEach((field) => {
+      const cellValue = (cells[columnIndex[field]] ?? "").trim();
+      if (field === "date") {
+        row.date = normalizeGfaDate(cellValue);
+      } else if (GFA_NUMERIC_FIELDS.includes(field)) {
+        row[field] = toGfaNumber(cellValue);
+      } else {
+        row[field] = cellValue;
+      }
     });
 
-    const row = { date: raw.date };
-    requiredColumns.forEach((col) => {
-      if (col === "date") return;
-      row[col] = ["impressions", "clicks", "cost", "conversions", "revenue"].includes(col)
-        ? Number(raw[col])
-        : raw[col];
-    });
     return row;
   });
 }
