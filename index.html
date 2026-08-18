@@ -213,10 +213,10 @@
         </div>
       </div>
 
-      <!-- SA 전용: 상품별(모델별) 성과 뷰 -->
+      <!-- SA/GFA 공용: 상품별(모델별) 성과 뷰 -->
       <div class="view" id="view-model" hidden>
-        <h2 class="view-title">SA 상품별(모델별) 성과</h2>
-        <p class="empty-notice">예시 데이터로 화면 구성만 먼저 보여드립니다. 실제 상품별 raw 파일 업로드 기능 연동 후 실데이터로 교체됩니다.</p>
+        <h2 class="view-title" id="modelViewTitle">상품별(모델별) 성과</h2>
+        <p class="empty-notice" id="modelViewNotice" hidden></p>
 
         <div class="chart-grid">
           <div class="chart-card">
@@ -229,12 +229,12 @@
           </div>
         </div>
 
-        <div class="model-list-card">
+        <div class="model-list-card" id="modelListCard">
           <div class="model-list-header">
             <h3 class="model-list-title">전 품목 모델별 성과 상세</h3>
             <input type="text" id="modelSearchInput" class="model-search-input" placeholder="모델명 검색">
           </div>
-          <span class="breakdown-hint">카드를 클릭하면 상세 키워드 데이터가 열립니다.</span>
+          <span class="breakdown-hint">카드를 클릭하면 상세 데이터가 열립니다.</span>
           <div class="model-card-grid" id="modelCardGrid"></div>
         </div>
       </div>
