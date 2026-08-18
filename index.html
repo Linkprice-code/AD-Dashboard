@@ -203,15 +203,16 @@
       <div class="view" id="view-upload" hidden>
         <h2 class="view-title">GFA 데이터 업로드</h2>
         <p class="upload-intro">
-          네이버 GFA는 캠페인 / 그룹 / 상품(ADV) 리포트를 각각 따로 내려주기 때문에,
-          아래 3개 칸에 나눠서 업로드합니다. 컬럼 순서는 상관없고 헤더 이름만 맞으면 됩니다.
+          네이버 GFA에서 다운로드한 캠페인/그룹/ADV 리포트 파일을 <b>수정 없이 그대로</b> 올리시면 됩니다.
+          "기간", "캠페인 이름", "노출수", "총비용", "구매완료 수", "구매완료 전환매출액" 같은 원본 헤더를
+          자동으로 인식합니다 (전환수/전환매출액은 여러 종류 중 <b>구매완료 기준</b>만 사용합니다).
         </p>
 
         <div class="upload-grid">
 
           <div class="upload-card">
             <h3 class="upload-card-title">캠페인 Raw</h3>
-            <code class="upload-columns">date, campaign, impressions, clicks, cost, conversions, revenue</code>
+            <code class="upload-columns">기간, 캠페인 이름, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="campaign" download="gfa_campaign_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="campaign">
               <input type="file" class="upload-file-input" accept=".csv" required>
@@ -222,7 +223,7 @@
 
           <div class="upload-card">
             <h3 class="upload-card-title">그룹 Raw</h3>
-            <code class="upload-columns">date, campaign, ad_group, impressions, clicks, cost, conversions, revenue</code>
+            <code class="upload-columns">기간, 캠페인 이름, 광고 그룹 이름, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="adgroup" download="gfa_adgroup_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="adgroup">
               <input type="file" class="upload-file-input" accept=".csv" required>
@@ -233,7 +234,7 @@
 
           <div class="upload-card">
             <h3 class="upload-card-title">ADV Raw</h3>
-            <code class="upload-columns">date, product, impressions, clicks, cost, conversions, revenue</code>
+            <code class="upload-columns">기간, 상품명, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="adv" download="gfa_adv_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="adv">
               <input type="file" class="upload-file-input" accept=".csv" required>
@@ -245,7 +246,7 @@
         </div>
 
         <p class="upload-note">
-          같은 종류(캠페인/그룹/ADV)에서 같은 날짜(date)로 다시 업로드하면, 그 날짜의 기존 데이터는
+          같은 종류(캠페인/그룹/ADV)에서 같은 날짜(기간)로 다시 업로드하면, 그 날짜의 기존 데이터는
           새 데이터로 교체됩니다 (중복 누적 방지).
         </p>
       </div>
