@@ -269,14 +269,19 @@ const groupedTableBody = document.getElementById("groupedTableBody");
 
 const viewUpload = document.getElementById("view-upload");
 
+const viewTrend = document.getElementById("view-trend");
+const trendTitle = document.getElementById("trendTitle");
+
 const analysisFromInput = document.getElementById("analysisFromInput");
 const analysisToInput = document.getElementById("analysisToInput");
-const comparePeriodText = document.getElementById("comparePeriodText");
+const compareFromInput = document.getElementById("compareFromInput");
+const compareToInput = document.getElementById("compareToInput");
 const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
-const overviewCampaignTableBody = document.getElementById("overviewCampaignTableBody");
-const overviewGroupTableBody = document.getElementById("overviewGroupTableBody");
-const overviewGroupTitle = document.getElementById("overviewGroupTitle");
-const campaignResetBtn = document.getElementById("campaignResetBtn");
+const breakdownTitle = document.getElementById("breakdownTitle");
+const breakdownFilter = document.getElementById("breakdownFilter");
+const breakdownTable = document.getElementById("breakdownTable");
+const breakdownTableBody = document.getElementById("breakdownTableBody");
+const breakdownNameHeader = document.getElementById("breakdownNameHeader");
 
 const state = {
   charts: {},
@@ -284,7 +289,9 @@ const state = {
   currentView: "overview",
   analysisPeriod: null,
   comparisonPeriod: null,
-  selectedCampaign: null,
+  breakdownRawType: "campaign",
+  breakdownRows: [],
+  breakdownSort: { key: "cost", dir: "desc" },
   overviewRenderToken: 0
 };
 
@@ -381,11 +388,15 @@ function showDashboard(advertiser) {
   state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
   analysisFromInput.value = state.analysisPeriod.from;
   analysisToInput.value = state.analysisPeriod.to;
+  compareFromInput.value = state.comparisonPeriod.from;
+  compareToInput.value = state.comparisonPeriod.to;
 
   renderSidebarMenu();
   switchView("overview");
 }
 
+// 분석기간을 바꾸면 비교기간도 "그 직전 같은 길이"로 자동 갱신한다
+// (사용자가 비교기간을 따로 골라둔 상태였어도, 분석기간이 바뀌면 기본값으로 다시 맞춘다).
 analysisFromInput.addEventListener("change", handlePeriodChange);
 analysisToInput.addEventListener("change", handlePeriodChange);
 
@@ -396,7 +407,26 @@ function handlePeriodChange() {
 
   state.analysisPeriod = { from, to };
   state.comparisonPeriod = computeComparisonPeriod(from, to);
-  state.selectedCampaign = null;
+  compareFromInput.value = state.comparisonPeriod.from;
+  compareToInput.value = state.comparisonPeriod.to;
+
+  if (state.currentView === "overview") {
+    renderOverview();
+  } else if (state.currentView === "trend") {
+    renderTrendView();
+  }
+}
+
+// 비교기간은 사용자가 직접 선택할 수도 있다 - 선택하면 그 값을 그대로 쓴다.
+compareFromInput.addEventListener("change", handleComparePeriodChange);
+compareToInput.addEventListener("change", handleComparePeriodChange);
+
+function handleComparePeriodChange() {
+  const from = compareFromInput.value;
+  const to = compareToInput.value;
+  if (!from || !to || from > to) return;
+
+  state.comparisonPeriod = { from, to };
 
   if (state.currentView === "overview") {
     renderOverview();
@@ -425,7 +455,7 @@ channelSwitch.addEventListener("click", (e) => {
 async function renderOverview() {
   overviewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 성과 대시보드`;
   periodLabel.textContent = formatPeriodRange(state.analysisPeriod);
-  comparePeriodText.textContent = `전기 대비: ${formatPeriodRange(state.comparisonPeriod)}`;
+  breakdownNameHeader.textContent = GFA_RAW_TYPE_NAME_LABEL[state.breakdownRawType] || "이름";
 
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
@@ -439,15 +469,8 @@ function renderSaOverview() {
 
   const current = withDerivedMetrics(SA_MOCK_TOTALS);
   renderKpiCards(current, null);
-  renderCharts(current);
 
-  state.selectedCampaign = null;
-  campaignResetBtn.hidden = true;
-  overviewGroupTitle.textContent = "광고그룹별 성과";
-
-  const notReadyRow = `<tr><td colspan="9" class="grouped-empty">네이버 SA API 연동 후 제공됩니다.</td></tr>`;
-  overviewCampaignTableBody.innerHTML = notReadyRow;
-  overviewGroupTableBody.innerHTML = notReadyRow;
+  renderSaBreakdownPlaceholder();
 }
 
 /* ---------------------------------------------------------
@@ -481,9 +504,8 @@ async function renderGfaOverview() {
     overviewEmptyNotice.hidden = false;
     overviewEmptyNotice.textContent = currentResult.message;
     renderKpiCards(withDerivedMetrics({ impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }), null);
-    renderCharts({ cost: 0, revenue: 0 });
-    overviewCampaignTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
-    overviewGroupTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
+    state.breakdownRows = [];
+    breakdownTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
     return;
   }
 
@@ -494,97 +516,99 @@ async function renderGfaOverview() {
   overviewEmptyNotice.hidden = hasData;
   if (!hasData) {
     overviewEmptyNotice.textContent =
-      '표시할 데이터가 없습니다. GFA는 "데이터 업로드" 메뉴에서 캠페인 Raw CSV를 먼저 업로드해주세요.';
+      '표시할 데이터가 없습니다. GFA는 "데이터 업로드" 메뉴에서 CSV를 먼저 업로드해주세요.';
   }
 
   renderKpiCards(
     withDerivedMetrics(currentTotals),
     comparisonTotals ? withDerivedMetrics(comparisonTotals) : null
   );
-  renderCharts(currentTotals);
-  renderCampaignBreakdownTable(currentResult.rows);
 
-  state.selectedCampaign = null;
-  await renderGfaGroupTable();
+  await loadBreakdownData();
 }
 
-function renderCampaignBreakdownTable(rows) {
-  if (rows.length === 0) {
-    overviewCampaignTableBody.innerHTML =
-      '<tr><td colspan="9" class="grouped-empty">이 기간에 업로드된 캠페인 데이터가 없습니다.</td></tr>';
-    return;
+/* ---------------------------------------------------------
+   6-3. 캠페인별 / 그룹별 / ADVoost 쇼핑 필터 (성과 대시보드 하단)
+   ---------------------------------------------------------
+   세 카테고리를 표 2개로 나란히 보여주던 이전 방식 대신, 필터 탭
+   하나로 캠페인별/그룹별/ADVoost 쇼핑(상품별)을 전환한다. 컬럼 헤더를
+   클릭하면 그 지표 기준으로 오름차순/내림차순 정렬된다.
+--------------------------------------------------------- */
+breakdownFilter.addEventListener("click", (e) => {
+  const btn = e.target.closest(".breakdown-filter-btn");
+  if (!btn || btn.classList.contains("active")) return;
+
+  state.breakdownRawType = btn.dataset.rawType;
+  breakdownFilter.querySelectorAll(".breakdown-filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  breakdownTitle.textContent = `${btn.textContent} 성과`;
+  breakdownNameHeader.textContent = GFA_RAW_TYPE_NAME_LABEL[state.breakdownRawType] || "이름";
+  state.breakdownSort = { key: "cost", dir: "desc" };
+
+  if (state.currentChannel === "GFA") {
+    loadBreakdownData();
+  } else {
+    renderSaBreakdownPlaceholder();
   }
-
-  overviewCampaignTableBody.innerHTML = rows
-    .map(
-      (row) => `
-        <tr class="clickable" data-campaign="${escapeAttr(row.name)}">
-          <td>${escapeHtml(row.name)}</td>
-          <td>${formatWon(row.cost)}</td>
-          <td>${formatWon(row.revenue)}</td>
-          <td>${row.roas}%</td>
-          <td>${formatNumber(row.clicks)}</td>
-          <td>${row.ctr.toFixed(2)}%</td>
-          <td>${formatNumber(row.conversions)}</td>
-          <td>${row.cvr.toFixed(2)}%</td>
-          <td>${formatWon(row.cpa)}</td>
-        </tr>
-      `
-    )
-    .join("");
-}
-
-overviewCampaignTableBody.addEventListener("click", (e) => {
-  const tr = e.target.closest("tr[data-campaign]");
-  if (!tr) return;
-
-  state.selectedCampaign = state.selectedCampaign === tr.dataset.campaign ? null : tr.dataset.campaign;
-  highlightSelectedCampaignRow();
-  renderGfaGroupTable();
 });
 
-campaignResetBtn.addEventListener("click", () => {
-  state.selectedCampaign = null;
-  highlightSelectedCampaignRow();
-  renderGfaGroupTable();
+breakdownTable.querySelector("thead").addEventListener("click", (e) => {
+  const th = e.target.closest("th.sortable");
+  if (!th) return;
+
+  const key = th.dataset.sortKey;
+  if (state.breakdownSort.key === key) {
+    state.breakdownSort.dir = state.breakdownSort.dir === "desc" ? "asc" : "desc";
+  } else {
+    state.breakdownSort = { key, dir: key === "name" ? "asc" : "desc" };
+  }
+  renderBreakdownRows();
 });
 
-function highlightSelectedCampaignRow() {
-  overviewCampaignTableBody.querySelectorAll("tr[data-campaign]").forEach((tr) => {
-    tr.classList.toggle("selected", tr.dataset.campaign === state.selectedCampaign);
-  });
-}
+async function loadBreakdownData() {
+  const token = ++state.overviewRenderToken;
+  breakdownTableBody.innerHTML = '<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>';
 
-async function renderGfaGroupTable() {
-  const token = state.overviewRenderToken;
-
-  campaignResetBtn.hidden = !state.selectedCampaign;
-  overviewGroupTitle.textContent = state.selectedCampaign
-    ? `광고그룹별 성과 (캠페인: ${state.selectedCampaign})`
-    : "광고그룹별 성과";
-
-  overviewGroupTableBody.innerHTML = '<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>';
-
-  const result = await fetchGfaPerformance("adgroup", {
+  const result = await fetchGfaPerformance(state.breakdownRawType, {
     dateFrom: state.analysisPeriod.from,
-    dateTo: state.analysisPeriod.to,
-    campaign: state.selectedCampaign || undefined
+    dateTo: state.analysisPeriod.to
   });
 
   if (token !== state.overviewRenderToken) return;
 
   if (!result.success) {
-    overviewGroupTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    state.breakdownRows = [];
+    breakdownTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    updateSortIndicators();
     return;
   }
 
-  if (result.rows.length === 0) {
-    overviewGroupTableBody.innerHTML =
-      '<tr><td colspan="9" class="grouped-empty">이 기간에 업로드된 그룹 데이터가 없습니다.</td></tr>';
+  state.breakdownRows = result.rows;
+  renderBreakdownRows();
+}
+
+function renderSaBreakdownPlaceholder() {
+  state.breakdownRows = [];
+  breakdownTableBody.innerHTML =
+    '<tr><td colspan="9" class="grouped-empty">네이버 SA API 연동 후 제공됩니다.</td></tr>';
+  updateSortIndicators();
+}
+
+function renderBreakdownRows() {
+  updateSortIndicators();
+
+  if (state.breakdownRows.length === 0) {
+    breakdownTableBody.innerHTML =
+      '<tr><td colspan="9" class="grouped-empty">이 기간에 업로드된 데이터가 없습니다.</td></tr>';
     return;
   }
 
-  overviewGroupTableBody.innerHTML = result.rows
+  const { key, dir } = state.breakdownSort;
+  const sorted = [...state.breakdownRows].sort((a, b) => {
+    const cmp = key === "name" ? String(a.name).localeCompare(String(b.name), "ko") : a[key] - b[key];
+    return dir === "asc" ? cmp : -cmp;
+  });
+
+  breakdownTableBody.innerHTML = sorted
     .map(
       (row) => `
         <tr>
@@ -601,6 +625,43 @@ async function renderGfaGroupTable() {
       `
     )
     .join("");
+}
+
+function updateSortIndicators() {
+  breakdownTable.querySelectorAll("th.sortable").forEach((th) => {
+    const isSorted = th.dataset.sortKey === state.breakdownSort.key;
+    th.classList.toggle("sorted", isSorted);
+    let arrow = th.querySelector(".sort-arrow");
+    if (!arrow) {
+      arrow = document.createElement("span");
+      arrow.className = "sort-arrow";
+      th.appendChild(arrow);
+    }
+    arrow.textContent = isSorted && state.breakdownSort.dir === "asc" ? "▲" : "▼";
+  });
+}
+
+/* ---------------------------------------------------------
+   6-4. 그래프 추이 (SA/GFA 공통, 분석기간 총합 기준)
+--------------------------------------------------------- */
+async function renderTrendView() {
+  trendTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 그래프 추이`;
+
+  if (state.currentChannel !== "GFA") {
+    renderCharts(SA_MOCK_TOTALS);
+    return;
+  }
+
+  const token = ++state.overviewRenderToken;
+  const result = await fetchGfaPerformance("campaign", {
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  const totals = result.success ? sumRawTotals(result.rows) : { cost: 0, revenue: 0 };
+  renderCharts(totals);
 }
 
 /* ---------------------------------------------------------
@@ -645,6 +706,7 @@ function renderCurrentView() {
     .forEach((btn) => btn.classList.toggle("active", btn.dataset.viewId === item.id));
 
   viewOverview.hidden = true;
+  viewTrend.hidden = true;
   viewGrouped.hidden = true;
   viewUpload.hidden = true;
   viewPlaceholder.hidden = true;
@@ -654,6 +716,9 @@ function renderCurrentView() {
   if (item.id === "overview") {
     viewOverview.hidden = false;
     renderOverview();
+  } else if (item.id === "trend") {
+    viewTrend.hidden = false;
+    renderTrendView();
   } else if (item.id === "upload") {
     viewUpload.hidden = false;
   } else if (item.gfaRawType && isGfa) {
@@ -721,18 +786,6 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// escapeHtml()은 텍스트 노드 기준이라 "는 이스케이프하지 않는다.
-// data-campaign="..." 같은 HTML 속성값 안에 넣을 때는 "를 반드시 이스케이프해야
-// 속성값을 깨고 나가는 걸 막을 수 있어서 별도 함수로 둔다.
-function escapeAttr(str) {
-  return String(str ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 /* ---------------------------------------------------------
    7-2. GFA 데이터 업로드 (CSV, raw_type별 3개 폼)
    ---------------------------------------------------------
@@ -749,12 +802,6 @@ const GFA_RAW_TYPE_COLUMNS = {
   campaign: ["date", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
   adgroup: ["date", "campaign", "ad_group", "impressions", "clicks", "cost", "conversions", "revenue"],
   adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"]
-};
-
-const GFA_RAW_TYPE_LABEL = {
-  campaign: "캠페인",
-  adgroup: "그룹",
-  adv: "ADV"
 };
 
 // 내부 필드명 -> 실제 CSV에 올 수 있는 헤더 이름 후보 (전부 소문자/trim 비교)
