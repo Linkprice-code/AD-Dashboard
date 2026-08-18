@@ -897,6 +897,299 @@ button, input, select {
   line-height: 1.6;
 }
 
+/* SA 상품별(모델별) 성과 - 도넛/막대+선 차트, 모델 카드, 상세 모달 */
+
+.model-list-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 20px 22px;
+  margin-top: 16px;
+}
+
+.model-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.model-list-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.model-search-input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-main);
+  min-width: 220px;
+}
+
+.model-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.model-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.model-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.model-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.model-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.model-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.model-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.model-badge.badge-green {
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--positive);
+}
+
+.model-badge.badge-orange {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.model-badge.badge-red {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--negative);
+}
+
+.model-badge.badge-teal {
+  background: rgba(13, 148, 136, 0.12);
+  color: #0f766e;
+}
+
+.model-card-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.model-card-metrics > div,
+.model-card-bottom > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-metric-label {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.model-metric-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.model-metric-value.strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.model-metric-value.accent {
+  color: var(--accent-dark);
+}
+
+.model-card-bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.model-card-bottom-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+/* 모델 상세 모달 */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-box {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  padding: 28px 30px;
+  max-width: 640px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-main);
+}
+
+.modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 8px;
+  margin-bottom: 18px;
+}
+
+.modal-section-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 10px;
+}
+
+.modal-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.modal-stat-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-stat-label {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.modal-stat-value {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.modal-stat-value.accent {
+  color: var(--accent-dark);
+}
+
+.modal-summary-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  background: var(--sidebar-bg);
+  border-radius: var(--radius-sm);
+  padding: 14px 12px;
+  margin-bottom: 20px;
+}
+
+.modal-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.modal-summary-label {
+  font-size: 11px;
+  color: var(--sidebar-text);
+}
+
+.modal-summary-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.modal-summary-value.good {
+  color: #4ade80;
+}
+
+.modal-summary-value.warn {
+  color: #fbbf24;
+}
+
+.modal-summary-value.accent {
+  color: #93c5fd;
+}
+
+.modal-table-wrap {
+  max-height: 220px;
+}
+
 /* ============ 반응형 ============ */
 
 @media (max-width: 1100px) {
@@ -912,6 +1205,16 @@ button, input, select {
 }
 
 @media (max-width: 860px) {
+  .modal-stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .modal-summary-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .model-list-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .sidebar {
     transform: translateX(-100%);
     box-shadow: 8px 0 24px rgba(0, 0, 0, 0.2);
