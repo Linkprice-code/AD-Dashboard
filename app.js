@@ -17,40 +17,66 @@ const SUPABASE_CONFIG = {
 };
 
 const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertiser-login`;
+const GFA_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-upload`;
+const GFA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
    2. 사이드바 메뉴 정의
+   ---------------------------------------------------------
+   gfaGroupBy가 있는 항목은 GFA 채널일 때 ad_performance를 해당 컬럼으로
+   집계해서 보여준다 (SA 채널일 때는 아직 "준비 중" 그대로).
+   gfaOnly 항목(데이터 업로드)은 GFA 채널일 때만 사이드바에 나타난다.
 --------------------------------------------------------- */
 const MENU_ITEMS = [
-  { id: "overview", label: "성과 대시보드", implemented: true },
-  { id: "trend", label: "그래프 추이", implemented: false },
-  { id: "product", label: "상품별 데이터", implemented: false },
-  { id: "daily", label: "일별 데이터", implemented: false },
-  { id: "monthly", label: "월별 데이터", implemented: false },
-  { id: "category", label: "카테고리별 데이터", implemented: false },
-  { id: "campaign", label: "캠페인별 성과", implemented: false },
-  { id: "adgroup", label: "광고그룹별 성과", implemented: false },
-  { id: "creative", label: "소재별 성과", implemented: false }
+  { id: "overview", label: "성과 대시보드" },
+  { id: "trend", label: "그래프 추이" },
+  { id: "product", label: "상품별 데이터", gfaGroupBy: "product" },
+  { id: "daily", label: "일별 데이터" },
+  { id: "monthly", label: "월별 데이터" },
+  { id: "category", label: "카테고리별 데이터" },
+  { id: "campaign", label: "캠페인별 성과", gfaGroupBy: "campaign" },
+  { id: "adgroup", label: "광고그룹별 성과", gfaGroupBy: "ad_group" },
+  { id: "creative", label: "소재별 성과" },
+  { id: "upload", label: "데이터 업로드", gfaOnly: true }
 ];
 
 /* ---------------------------------------------------------
-   3. KPI / 차트 Mock 데이터
+   3. 채널(SA / GFA) / KPI / 차트 Mock 데이터
    ---------------------------------------------------------
    ad_performance 테이블 연동 전까지는 로그인한 광고주와 무관하게
-   동일한 Mock 데이터를 보여준다.
+   채널별로 고정된 Mock 데이터를 보여준다. SA는 네이버 검색광고(파워링크 등),
+   GFA는 네이버 GFA(디스플레이) 광고를 뜻한다. 실데이터 연동 시
+   CHANNEL_MOCK_DATA 자리에 광고주+채널별 ad_performance 집계 결과가 들어간다.
 --------------------------------------------------------- */
 const MOCK_PERIOD = "2026.07.01 ~ 2026.07.31";
 
-const MOCK_KPI = {
-  cost: 12450000,
-  revenue: 85300000,
-  roas: 685,
-  clicks: 24530,
-  ctr: 2.41,
-  conversions: 1840,
-  cvr: 7.50,
-  cpa: 6766
+const CHANNEL_LABELS = {
+  SA: "SA",
+  GFA: "GFA"
+};
+
+const CHANNEL_MOCK_DATA = {
+  SA: {
+    cost: 12450000,
+    revenue: 85300000,
+    roas: 685,
+    clicks: 24530,
+    ctr: 2.41,
+    conversions: 1840,
+    cvr: 7.50,
+    cpa: 6766
+  },
+  GFA: {
+    cost: 6820000,
+    revenue: 31450000,
+    roas: 461,
+    clicks: 158420,
+    ctr: 0.68,
+    conversions: 612,
+    cvr: 0.39,
+    cpa: 11144
+  }
 };
 
 /* ---------------------------------------------------------
@@ -136,6 +162,85 @@ function isTokenExpired(token) {
 }
 
 /* ---------------------------------------------------------
+   4-1. GFA 데이터 업로드 / 조회
+   ---------------------------------------------------------
+   두 요청 모두 advertiser-login에서 받은 세션 토큰을 X-Session-Token
+   헤더로 보낸다. advertiser_id는 서버가 이 토큰을 검증해서 알아내므로
+   프론트엔드에서 advertiser_id를 별도로 보내지 않는다.
+--------------------------------------------------------- */
+async function uploadGfaData(rows) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(GFA_UPLOAD_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ channel: "GFA", rows })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "업로드에 실패했습니다." };
+  }
+
+  return payload;
+}
+
+async function fetchGfaPerformance(groupBy) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(GFA_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ group_by: groupBy })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
+/* ---------------------------------------------------------
    5. DOM 참조
 --------------------------------------------------------- */
 const loginScreen = document.getElementById("loginScreen");
@@ -149,6 +254,8 @@ const sidebar = document.getElementById("sidebar");
 const sidebarMenuList = document.getElementById("sidebarMenuList");
 const sidebarBackdrop = document.getElementById("sidebarBackdrop");
 const menuToggle = document.getElementById("menuToggle");
+const channelSwitch = document.getElementById("channelSwitch");
+const overviewTitle = document.getElementById("overviewTitle");
 
 const advertiserNameEl = document.getElementById("advertiserName");
 const periodLabel = document.getElementById("periodLabel");
@@ -159,8 +266,21 @@ const viewOverview = document.getElementById("view-overview");
 const viewPlaceholder = document.getElementById("view-placeholder");
 const placeholderTitle = document.getElementById("placeholderTitle");
 
+const viewGrouped = document.getElementById("view-grouped");
+const groupedTitle = document.getElementById("groupedTitle");
+const groupedNameHeader = document.getElementById("groupedNameHeader");
+const groupedTableBody = document.getElementById("groupedTableBody");
+
+const viewUpload = document.getElementById("view-upload");
+const uploadForm = document.getElementById("uploadForm");
+const uploadFileInput = document.getElementById("uploadFileInput");
+const uploadStatus = document.getElementById("uploadStatus");
+const downloadTemplateLink = document.getElementById("downloadTemplateLink");
+
 const state = {
-  charts: {}
+  charts: {},
+  currentChannel: "SA",
+  currentView: "overview"
 };
 
 /* ---------------------------------------------------------
@@ -213,8 +333,32 @@ function showDashboard(advertiser) {
 
   renderSidebarMenu();
   switchView("overview");
-  renderKpiCards(MOCK_KPI);
-  renderCharts(MOCK_KPI);
+}
+
+/* ---------------------------------------------------------
+   6-1. 채널(SA / GFA) 전환
+--------------------------------------------------------- */
+channelSwitch.addEventListener("click", (e) => {
+  const tab = e.target.closest(".channel-tab");
+  if (!tab || tab.classList.contains("active")) return;
+
+  state.currentChannel = tab.dataset.channel;
+
+  channelSwitch.querySelectorAll(".channel-tab").forEach((btn) => {
+    const isActive = btn === tab;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-selected", String(isActive));
+  });
+
+  renderSidebarMenu();
+  renderCurrentView();
+});
+
+function renderOverview() {
+  const kpi = CHANNEL_MOCK_DATA[state.currentChannel];
+  overviewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 성과 대시보드`;
+  renderKpiCards(kpi);
+  renderCharts(kpi);
 }
 
 /* ---------------------------------------------------------
@@ -224,6 +368,8 @@ function renderSidebarMenu() {
   sidebarMenuList.innerHTML = "";
 
   MENU_ITEMS.forEach((item) => {
+    if (item.gfaOnly && state.currentChannel !== "GFA") return;
+
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.className = "sidebar-menu-item";
@@ -239,17 +385,39 @@ function renderSidebarMenu() {
 }
 
 function switchView(viewId) {
-  const item = MENU_ITEMS.find((m) => m.id === viewId) || MENU_ITEMS[0];
+  state.currentView = viewId;
+  renderCurrentView();
+}
+
+function renderCurrentView() {
+  let item = MENU_ITEMS.find((m) => m.id === state.currentView);
+
+  // GFA 전용 메뉴인데 지금 채널이 GFA가 아니면 성과 대시보드로 되돌린다.
+  if (!item || (item.gfaOnly && state.currentChannel !== "GFA")) {
+    item = MENU_ITEMS[0];
+    state.currentView = item.id;
+  }
 
   document
     .querySelectorAll(".sidebar-menu-item")
     .forEach((btn) => btn.classList.toggle("active", btn.dataset.viewId === item.id));
 
-  if (item.implemented) {
+  viewOverview.hidden = true;
+  viewGrouped.hidden = true;
+  viewUpload.hidden = true;
+  viewPlaceholder.hidden = true;
+
+  const isGfa = state.currentChannel === "GFA";
+
+  if (item.id === "overview") {
     viewOverview.hidden = false;
-    viewPlaceholder.hidden = true;
+    renderOverview();
+  } else if (item.id === "upload") {
+    viewUpload.hidden = false;
+  } else if (item.gfaGroupBy && isGfa) {
+    viewGrouped.hidden = false;
+    renderGroupedPerformance(item);
   } else {
-    viewOverview.hidden = true;
     viewPlaceholder.hidden = false;
     placeholderTitle.textContent = item.label;
   }
@@ -261,6 +429,188 @@ function closeSidebarOnMobile() {
 
 menuToggle.addEventListener("click", () => sidebar.classList.toggle("open"));
 sidebarBackdrop.addEventListener("click", () => sidebar.classList.remove("open"));
+
+/* ---------------------------------------------------------
+   7-1. GFA 그룹별 성과 (캠페인별 / 광고그룹별 / 상품별 공용)
+--------------------------------------------------------- */
+async function renderGroupedPerformance(item) {
+  groupedTitle.textContent = `GFA ${item.label}`;
+  groupedNameHeader.textContent = item.label.replace("성과", "").replace("데이터", "").trim() || "이름";
+  groupedTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>`;
+
+  const result = await fetchGfaPerformance(item.gfaGroupBy);
+
+  // 그 사이에 다른 메뉴로 이동했다면 낡은 응답으로 화면을 덮어쓰지 않는다.
+  if (state.currentView !== item.id || state.currentChannel !== "GFA") return;
+
+  if (!result.success) {
+    groupedTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    return;
+  }
+
+  if (result.rows.length === 0) {
+    groupedTableBody.innerHTML =
+      `<tr><td colspan="9" class="grouped-empty">업로드된 GFA 데이터가 없습니다. "데이터 업로드" 메뉴에서 먼저 업로드해주세요.</td></tr>`;
+    return;
+  }
+
+  groupedTableBody.innerHTML = result.rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${formatWon(row.cost)}</td>
+          <td>${formatWon(row.revenue)}</td>
+          <td>${row.roas}%</td>
+          <td>${formatNumber(row.clicks)}</td>
+          <td>${row.ctr.toFixed(2)}%</td>
+          <td>${formatNumber(row.conversions)}</td>
+          <td>${row.cvr.toFixed(2)}%</td>
+          <td>${formatWon(row.cpa)}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+/* ---------------------------------------------------------
+   7-2. GFA 데이터 업로드 (CSV)
+--------------------------------------------------------- */
+const GFA_CSV_COLUMNS = [
+  "date",
+  "campaign",
+  "ad_group",
+  "product",
+  "impressions",
+  "clicks",
+  "cost",
+  "conversions",
+  "revenue"
+];
+const GFA_MAX_UPLOAD_ROWS = 5000;
+
+function splitCsvLine(line) {
+  const cells = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      cells.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current);
+  return cells;
+}
+
+function parseGfaCsv(text) {
+  const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
+  if (lines.length < 2) {
+    throw new Error("업로드할 데이터가 없습니다 (헤더 다음 줄부터 데이터가 있어야 합니다).");
+  }
+
+  const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const missing = GFA_CSV_COLUMNS.filter((col) => !header.includes(col));
+  if (missing.length > 0) {
+    throw new Error(`CSV 헤더에 다음 컬럼이 없습니다: ${missing.join(", ")}`);
+  }
+
+  return lines.slice(1).map((line) => {
+    const cells = splitCsvLine(line);
+    const raw = {};
+    header.forEach((col, i) => {
+      raw[col] = (cells[i] ?? "").trim();
+    });
+
+    return {
+      date: raw.date,
+      campaign: raw.campaign,
+      ad_group: raw.ad_group,
+      product: raw.product,
+      impressions: Number(raw.impressions),
+      clicks: Number(raw.clicks),
+      cost: Number(raw.cost),
+      conversions: Number(raw.conversions),
+      revenue: Number(raw.revenue)
+    };
+  });
+}
+
+uploadForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const file = uploadFileInput.files[0];
+  if (!file) return;
+
+  uploadStatus.hidden = true;
+  const submitBtn = uploadForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = "업로드 중...";
+
+  try {
+    const text = await file.text();
+    const rows = parseGfaCsv(text);
+
+    if (rows.length === 0) {
+      throw new Error("업로드할 데이터가 없습니다.");
+    }
+    if (rows.length > GFA_MAX_UPLOAD_ROWS) {
+      throw new Error(`한 번에 최대 ${GFA_MAX_UPLOAD_ROWS}행까지 업로드할 수 있습니다.`);
+    }
+
+    const result = await uploadGfaData(rows);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    showUploadStatus(
+      `업로드 완료: ${result.inserted}건 저장 (${result.dates_replaced.length}개 날짜 갱신)`,
+      "success"
+    );
+    uploadForm.reset();
+  } catch (err) {
+    showUploadStatus(err.message || "업로드 중 오류가 발생했습니다.", "error");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+});
+
+function showUploadStatus(message, type) {
+  uploadStatus.textContent = message;
+  uploadStatus.className = `upload-status upload-status-${type}`;
+  uploadStatus.hidden = false;
+}
+
+// CSV 템플릿 다운로드 링크 (정적 파일 없이 브라우저에서 즉석으로 생성)
+(function setupGfaTemplateLink() {
+  const templateCsv =
+    "date,campaign,ad_group,product,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,여름신상프로모션,배너그룹A,ADVoost,15200,320,540000,18,3200000\n";
+  downloadTemplateLink.href = "data:text/csv;charset=utf-8," + encodeURIComponent(templateCsv);
+})();
 
 /* ---------------------------------------------------------
    8. 유틸

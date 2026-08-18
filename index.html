@@ -46,6 +46,11 @@
       <span class="sidebar-brand-text">ADS DASHBOARD</span>
     </div>
 
+    <div class="channel-switch" id="channelSwitch" role="tablist">
+      <button type="button" class="channel-tab active" data-channel="SA" role="tab" aria-selected="true">SA</button>
+      <button type="button" class="channel-tab" data-channel="GFA" role="tab" aria-selected="false">GFA</button>
+    </div>
+
     <nav class="sidebar-menu">
       <ul id="sidebarMenuList"></ul>
     </nav>
@@ -85,7 +90,7 @@
 
       <!-- 성과 대시보드 뷰 -->
       <div class="view" id="view-overview">
-        <h2 class="view-title">성과 대시보드</h2>
+        <h2 class="view-title" id="overviewTitle">SA 성과 대시보드</h2>
 
         <div class="kpi-grid" id="kpiGrid"></div>
 
@@ -105,7 +110,60 @@
         </div>
       </div>
 
-      <!-- 준비 중 플레이스홀더 뷰 (그래프 추이, 상품별 데이터 등) -->
+      <!-- GFA 그룹별 성과 뷰 (캠페인별 / 광고그룹별 / 상품별 공용) -->
+      <div class="view" id="view-grouped" hidden>
+        <h2 class="view-title" id="groupedTitle">GFA 성과</h2>
+        <div class="table-card">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th id="groupedNameHeader">이름</th>
+                  <th>광고비</th>
+                  <th>광고매출</th>
+                  <th>ROAS</th>
+                  <th>클릭수</th>
+                  <th>CTR</th>
+                  <th>전환수</th>
+                  <th>CVR</th>
+                  <th>CPA</th>
+                </tr>
+              </thead>
+              <tbody id="groupedTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- GFA 데이터 업로드 뷰 -->
+      <div class="view" id="view-upload" hidden>
+        <h2 class="view-title">GFA 데이터 업로드</h2>
+
+        <div class="upload-card">
+          <p class="upload-guide">
+            GFA는 네이버 광고 API 연동 전이라 원시 데이터를 CSV 파일로 직접 업로드합니다.
+            아래 컬럼명을 <b>첫 줄(헤더)</b>에 그대로 포함한 CSV 파일을 업로드해주세요. 컬럼 순서는 상관없습니다.
+          </p>
+          <code class="upload-columns">date, campaign, ad_group, product, impressions, clicks, cost, conversions, revenue</code>
+          <p class="upload-example">
+            예시 한 줄: <code>2026-08-01,여름신상프로모션,배너그룹A,ADVoost,15200,320,540000,18,3200000</code>
+          </p>
+          <a class="upload-template-link" id="downloadTemplateLink" download="gfa_upload_template.csv">CSV 템플릿 다운로드</a>
+
+          <form id="uploadForm" class="upload-form">
+            <input type="file" id="uploadFileInput" class="upload-file-input" accept=".csv" required>
+            <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+          </form>
+
+          <p id="uploadStatus" class="upload-status" hidden></p>
+
+          <p class="upload-note">
+            같은 날짜(date)로 다시 업로드하면, 그 날짜의 기존 GFA 데이터는 새 데이터로 교체됩니다 (중복 누적 방지).
+          </p>
+        </div>
+      </div>
+
+      <!-- 준비 중 플레이스홀더 뷰 (그래프 추이, 일별/월별/카테고리별 데이터, 소재별 성과 등) -->
       <div class="view" id="view-placeholder" hidden>
         <h2 class="view-title" id="placeholderTitle">준비 중</h2>
         <div class="placeholder-card">
