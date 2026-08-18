@@ -93,42 +93,34 @@
         <h2 class="view-title" id="overviewTitle">SA 성과 대시보드</h2>
 
         <div class="period-bar">
-          <div class="period-mode" id="periodMode" role="tablist">
-            <button type="button" class="period-mode-btn active" data-mode="custom">일별</button>
-            <button type="button" class="period-mode-btn" data-mode="week">주별</button>
-            <button type="button" class="period-mode-btn" data-mode="month">월별</button>
+          <div class="period-picker-row">
+            <div class="period-picker">
+              <span class="period-label">분석 기간 선택</span>
+              <select id="analysisYearSelect" class="period-select"></select>
+              <select id="analysisMonthSelect" class="period-select"></select>
+              <select id="analysisWeekSelect" class="period-select"></select>
+              <select id="analysisDaySelect" class="period-select"></select>
+              <button type="button" id="analysisConfirmBtn" class="period-confirm-btn">확인</button>
+            </div>
+            <div class="period-shortcuts">
+              <button type="button" id="analysisThisMonthBtn" class="period-shortcut-btn">이번달 보기</button>
+              <button type="button" id="analysisAllYearBtn" class="period-shortcut-btn">전체 선택</button>
+              <button type="button" id="analysisResetBtn" class="period-shortcut-btn">전체 해제</button>
+            </div>
           </div>
 
-          <div class="period-field" id="analysisCustomField">
-            <span class="period-label">분석기간</span>
-            <input type="date" id="analysisFromInput" class="period-input">
-            <span class="period-sep">~</span>
-            <input type="date" id="analysisToInput" class="period-input">
-          </div>
-          <div class="period-field" id="analysisWeekField" hidden>
-            <span class="period-label">분석기간(주)</span>
-            <input type="month" id="analysisWeekMonthInput" class="period-input">
-            <select id="analysisWeekSelect" class="period-input period-select"></select>
-          </div>
-          <div class="period-field" id="analysisMonthField" hidden>
-            <span class="period-label">분석기간(월)</span>
-            <input type="month" id="analysisMonthInput" class="period-input">
-          </div>
-
-          <div class="period-field" id="compareCustomField">
-            <span class="period-label">비교기간</span>
-            <input type="date" id="compareFromInput" class="period-input">
-            <span class="period-sep">~</span>
-            <input type="date" id="compareToInput" class="period-input">
-          </div>
-          <div class="period-field" id="compareWeekField" hidden>
-            <span class="period-label">비교기간(주)</span>
-            <input type="month" id="compareWeekMonthInput" class="period-input">
-            <select id="compareWeekSelect" class="period-input period-select"></select>
-          </div>
-          <div class="period-field" id="compareMonthField" hidden>
-            <span class="period-label">비교기간(월)</span>
-            <input type="month" id="compareMonthInput" class="period-input">
+          <div class="period-picker-row">
+            <div class="period-picker">
+              <span class="period-label">비교 기간 선택</span>
+              <select id="compareYearSelect" class="period-select"></select>
+              <select id="compareMonthSelect" class="period-select"></select>
+              <select id="compareWeekSelect" class="period-select"></select>
+              <select id="compareDaySelect" class="period-select"></select>
+              <button type="button" id="compareConfirmBtn" class="period-confirm-btn">확인</button>
+            </div>
+            <div class="period-shortcuts">
+              <button type="button" id="compareResetBtn" class="period-shortcut-btn">비교 초기화</button>
+            </div>
           </div>
         </div>
 
