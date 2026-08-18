@@ -34,7 +34,6 @@ const MENU_ITEMS = [
   { id: "product", label: "상품별 데이터", gfaRawType: "adv" },
   { id: "daily", label: "일별 데이터" },
   { id: "monthly", label: "월별 데이터" },
-  { id: "category", label: "카테고리별 데이터" },
   { id: "campaign", label: "캠페인별 성과", gfaRawType: "campaign" },
   { id: "adgroup", label: "광고그룹별 성과", gfaRawType: "adgroup" },
   { id: "creative", label: "소재별 성과" },
