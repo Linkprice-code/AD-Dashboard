@@ -24,20 +24,23 @@ const SESSION_STORAGE_KEY = "adsDashboardSession";
 /* ---------------------------------------------------------
    2. 사이드바 메뉴 정의
    ---------------------------------------------------------
-   gfaGroupBy가 있는 항목은 GFA 채널일 때 ad_performance를 해당 컬럼으로
-   집계해서 보여준다 (SA 채널일 때는 아직 "준비 중" 그대로).
-   gfaOnly 항목(데이터 업로드)은 GFA 채널일 때만 사이드바에 나타난다.
+   channels에 지금 선택된 채널(SA/GFA)이 없으면 사이드바에 아예 나타나지
+   않는다. gfaRawType이 있는 항목은 GFA 채널일 때 그 raw 테이블을
+   집계해서 보여준다.
 --------------------------------------------------------- */
 const MENU_ITEMS = [
-  { id: "overview", label: "성과 대시보드" },
-  { id: "trend", label: "그래프 추이" },
-  { id: "product", label: "상품별 데이터", gfaRawType: "adv" },
-  { id: "daily", label: "일별 데이터" },
-  { id: "monthly", label: "월별 데이터" },
-  { id: "campaign", label: "캠페인별 성과", gfaRawType: "campaign" },
-  { id: "adgroup", label: "광고그룹별 성과", gfaRawType: "adgroup" },
-  { id: "creative", label: "소재별 성과" },
-  { id: "upload", label: "데이터 업로드", gfaOnly: true }
+  { id: "overview", label: "성과 대시보드", channels: ["SA", "GFA"] },
+  { id: "trend", label: "그래프 추이", channels: ["SA", "GFA"] },
+  { id: "product", label: "상품별 데이터", channels: ["SA", "GFA"], gfaRawType: "adv" },
+  { id: "powerlink", label: "파워링크", channels: ["SA"] },
+  { id: "shopping", label: "쇼핑검색", channels: ["SA"] },
+  { id: "brand", label: "브랜드검색", channels: ["SA"] },
+  { id: "daily", label: "일별 데이터", channels: ["GFA"] },
+  { id: "monthly", label: "월별 데이터", channels: ["GFA"] },
+  { id: "campaign", label: "캠페인별 성과", channels: ["GFA"], gfaRawType: "campaign" },
+  { id: "adgroup", label: "광고그룹별 성과", channels: ["GFA"], gfaRawType: "adgroup" },
+  { id: "creative", label: "소재별 성과", channels: ["GFA"] },
+  { id: "upload", label: "데이터 업로드", channels: ["GFA"] }
 ];
 
 // raw_type -> "이름" 컬럼 헤더에 쓸 표시명
@@ -272,11 +275,28 @@ const viewUpload = document.getElementById("view-upload");
 const viewTrend = document.getElementById("view-trend");
 const trendTitle = document.getElementById("trendTitle");
 
+const periodMode = document.getElementById("periodMode");
+const analysisCustomField = document.getElementById("analysisCustomField");
+const analysisWeekField = document.getElementById("analysisWeekField");
+const analysisMonthField = document.getElementById("analysisMonthField");
 const analysisFromInput = document.getElementById("analysisFromInput");
 const analysisToInput = document.getElementById("analysisToInput");
+const analysisWeekInput = document.getElementById("analysisWeekInput");
+const analysisMonthInput = document.getElementById("analysisMonthInput");
+const compareCustomField = document.getElementById("compareCustomField");
+const compareWeekField = document.getElementById("compareWeekField");
+const compareMonthField = document.getElementById("compareMonthField");
 const compareFromInput = document.getElementById("compareFromInput");
 const compareToInput = document.getElementById("compareToInput");
+const compareWeekInput = document.getElementById("compareWeekInput");
+const compareMonthInput = document.getElementById("compareMonthInput");
+
 const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
+
+const campaignTypeSection = document.getElementById("campaignTypeSection");
+const campaignTypeFilter = document.getElementById("campaignTypeFilter");
+const campaignTypeTableBody = document.getElementById("campaignTypeTableBody");
+
 const breakdownTitle = document.getElementById("breakdownTitle");
 const breakdownFilter = document.getElementById("breakdownFilter");
 const breakdownTable = document.getElementById("breakdownTable");
@@ -287,6 +307,7 @@ const state = {
   charts: {},
   currentChannel: "SA",
   currentView: "overview",
+  periodMode: "custom",
   analysisPeriod: null,
   comparisonPeriod: null,
   breakdownRawType: "campaign",
@@ -335,6 +356,48 @@ function computeComparisonPeriod(fromStr, toStr) {
 function formatPeriodRange(period) {
   if (!period) return "-";
   return `${period.from.replace(/-/g, ".")} ~ ${period.to.replace(/-/g, ".")}`;
+}
+
+// --- 주별(ISO 8601 week) / 월별 선택 -> 실제 from~to 날짜로 변환 ---
+// <input type="week">은 "YYYY-Www" 값을 준다 (예: "2026-W33" = 2026년 33주차).
+function toISOWeekString(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7)); // 이번 주 목요일로 이동
+  const year = d.getFullYear();
+  const jan4 = new Date(year, 0, 4);
+  const week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+  const weekNum = Math.round((d - week1Monday) / (7 * 86400000)) + 1;
+  return `${year}-W${String(weekNum).padStart(2, "0")}`;
+}
+
+function isoWeekToRange(weekStr) {
+  const [yearStr, weekPart] = weekStr.split("-W");
+  const year = Number(yearStr);
+  const week = Number(weekPart);
+  const jan4 = new Date(year, 0, 4);
+  const week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+  const monday = new Date(week1Monday);
+  monday.setDate(week1Monday.getDate() + (week - 1) * 7);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return { from: toISODate(monday), to: toISODate(sunday) };
+}
+
+// <input type="month">은 "YYYY-MM" 값을 준다.
+function toMonthString(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthStringToRange(monthStr) {
+  const [yearStr, monthStr2] = monthStr.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr2);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0); // 다음 달 0일 = 이번 달 마지막 날
+  return { from: toISODate(first), to: toISODate(last) };
 }
 
 /* ---------------------------------------------------------
@@ -391,8 +454,17 @@ function showDashboard(advertiser) {
   compareFromInput.value = state.comparisonPeriod.from;
   compareToInput.value = state.comparisonPeriod.to;
 
+  applyChannelVisibility();
   renderSidebarMenu();
   switchView("overview");
+}
+
+function refreshCurrentPeriodView() {
+  if (state.currentView === "overview") {
+    renderOverview();
+  } else if (state.currentView === "trend") {
+    renderTrendView();
+  }
 }
 
 // 분석기간을 바꾸면 비교기간도 "그 직전 같은 길이"로 자동 갱신한다
@@ -410,11 +482,7 @@ function handlePeriodChange() {
   compareFromInput.value = state.comparisonPeriod.from;
   compareToInput.value = state.comparisonPeriod.to;
 
-  if (state.currentView === "overview") {
-    renderOverview();
-  } else if (state.currentView === "trend") {
-    renderTrendView();
-  }
+  refreshCurrentPeriodView();
 }
 
 // 비교기간은 사용자가 직접 선택할 수도 있다 - 선택하면 그 값을 그대로 쓴다.
@@ -427,15 +495,94 @@ function handleComparePeriodChange() {
   if (!from || !to || from > to) return;
 
   state.comparisonPeriod = { from, to };
+  refreshCurrentPeriodView();
+}
 
-  if (state.currentView === "overview") {
-    renderOverview();
+/* ---------------------------------------------------------
+   6-0. 기간 단위: 직접선택 / 주별 / 월별
+   ---------------------------------------------------------
+   셋 중 하나를 고르면 분석기간+비교기간 입력 UI가 통째로 바뀐다.
+   주별/월별을 고르면 분석기간은 이번 주(달), 비교기간은 저번 주(달)로
+   기본값이 맞춰지고, 각각 따로 다시 고를 수도 있다.
+--------------------------------------------------------- */
+periodMode.addEventListener("click", (e) => {
+  const btn = e.target.closest(".period-mode-btn");
+  if (!btn || btn.classList.contains("active")) return;
+  setPeriodMode(btn.dataset.mode);
+});
+
+function setPeriodMode(mode) {
+  state.periodMode = mode;
+  periodMode.querySelectorAll(".period-mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+
+  analysisCustomField.hidden = mode !== "custom";
+  analysisWeekField.hidden = mode !== "week";
+  analysisMonthField.hidden = mode !== "month";
+  compareCustomField.hidden = mode !== "custom";
+  compareWeekField.hidden = mode !== "week";
+  compareMonthField.hidden = mode !== "month";
+
+  if (mode === "week") {
+    const now = new Date();
+    const lastWeek = new Date(now);
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    analysisWeekInput.value = toISOWeekString(now);
+    compareWeekInput.value = toISOWeekString(lastWeek);
+    applyWeekPeriods();
+  } else if (mode === "month") {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    analysisMonthInput.value = toMonthString(now);
+    compareMonthInput.value = toMonthString(lastMonth);
+    applyMonthPeriods();
+  } else {
+    analysisFromInput.value = state.analysisPeriod.from;
+    analysisToInput.value = state.analysisPeriod.to;
+    compareFromInput.value = state.comparisonPeriod.from;
+    compareToInput.value = state.comparisonPeriod.to;
   }
 }
+
+function applyWeekPeriods() {
+  if (!analysisWeekInput.value || !compareWeekInput.value) return;
+  state.analysisPeriod = isoWeekToRange(analysisWeekInput.value);
+  state.comparisonPeriod = isoWeekToRange(compareWeekInput.value);
+  refreshCurrentPeriodView();
+}
+
+function applyMonthPeriods() {
+  if (!analysisMonthInput.value || !compareMonthInput.value) return;
+  state.analysisPeriod = monthStringToRange(analysisMonthInput.value);
+  state.comparisonPeriod = monthStringToRange(compareMonthInput.value);
+  refreshCurrentPeriodView();
+}
+
+analysisWeekInput.addEventListener("change", applyWeekPeriods);
+compareWeekInput.addEventListener("change", applyWeekPeriods);
+analysisMonthInput.addEventListener("change", applyMonthPeriods);
+compareMonthInput.addEventListener("change", applyMonthPeriods);
 
 /* ---------------------------------------------------------
    6-1. 채널(SA / GFA) 전환
 --------------------------------------------------------- */
+// ADVoost 쇼핑은 GFA 전용 - SA에서는 탭 자체를 숨기고, 그 탭이 선택된
+// 상태로 SA로 넘어왔으면 캠페인별로 되돌린다. 채널 전환 시뿐 아니라
+// 최초 로그인 시(SA가 기본값)에도 반영되어야 하므로 함수로 분리한다.
+function applyChannelVisibility() {
+  const isGfa = state.currentChannel === "GFA";
+  breakdownFilter.querySelectorAll(".gfa-only-tab").forEach((btn) => {
+    btn.hidden = !isGfa;
+  });
+  if (!isGfa && state.breakdownRawType === "adv") {
+    state.breakdownRawType = "campaign";
+    breakdownFilter.querySelectorAll(".breakdown-filter-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.rawType === "campaign");
+    });
+    breakdownTitle.textContent = "캠페인별 성과";
+  }
+  state.breakdownSort = { key: "cost", dir: "desc" };
+}
+
 channelSwitch.addEventListener("click", (e) => {
   const tab = e.target.closest(".channel-tab");
   if (!tab || tab.classList.contains("active")) return;
@@ -448,6 +595,8 @@ channelSwitch.addEventListener("click", (e) => {
     btn.setAttribute("aria-selected", String(isActive));
   });
 
+  applyChannelVisibility();
+
   renderSidebarMenu();
   renderCurrentView();
 });
@@ -456,6 +605,9 @@ async function renderOverview() {
   overviewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 성과 대시보드`;
   periodLabel.textContent = formatPeriodRange(state.analysisPeriod);
   breakdownNameHeader.textContent = GFA_RAW_TYPE_NAME_LABEL[state.breakdownRawType] || "이름";
+
+  // 캠페인 유형별(파워링크/쇼핑검색/브랜드검색)은 SA 전용 섹션이라 GFA에서는 숨긴다.
+  campaignTypeSection.hidden = state.currentChannel !== "SA";
 
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
@@ -470,7 +622,27 @@ function renderSaOverview() {
   const current = withDerivedMetrics(SA_MOCK_TOTALS);
   renderKpiCards(current, null);
 
+  renderCampaignTypePlaceholder();
   renderSaBreakdownPlaceholder();
+}
+
+/* ---------------------------------------------------------
+   6-1b. 캠페인 유형별 성과 (SA 전용: 파워링크 / 쇼핑검색 / 브랜드검색)
+   ---------------------------------------------------------
+   네이버 SA API 연동 전이라 아직 실데이터는 없다. 탭 구조만 미리 만들어두고
+   자리를 잡아둔다 (item 4: 상품별 데이터처럼 이후 수기 업로드로 채워질 예정).
+--------------------------------------------------------- */
+campaignTypeFilter.addEventListener("click", (e) => {
+  const btn = e.target.closest(".breakdown-filter-btn");
+  if (!btn || btn.classList.contains("active")) return;
+
+  campaignTypeFilter.querySelectorAll(".breakdown-filter-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  renderCampaignTypePlaceholder();
+});
+
+function renderCampaignTypePlaceholder() {
+  campaignTypeTableBody.innerHTML =
+    '<tr><td colspan="9" class="grouped-empty">네이버 SA API 연동 후 제공됩니다.</td></tr>';
 }
 
 /* ---------------------------------------------------------
@@ -671,7 +843,7 @@ function renderSidebarMenu() {
   sidebarMenuList.innerHTML = "";
 
   MENU_ITEMS.forEach((item) => {
-    if (item.gfaOnly && state.currentChannel !== "GFA") return;
+    if (!item.channels.includes(state.currentChannel)) return;
 
     const li = document.createElement("li");
     const btn = document.createElement("button");
@@ -695,8 +867,8 @@ function switchView(viewId) {
 function renderCurrentView() {
   let item = MENU_ITEMS.find((m) => m.id === state.currentView);
 
-  // GFA 전용 메뉴인데 지금 채널이 GFA가 아니면 성과 대시보드로 되돌린다.
-  if (!item || (item.gfaOnly && state.currentChannel !== "GFA")) {
+  // 지금 채널의 사이드바에 없는 메뉴면(예: SA에서 GFA 전용 메뉴) 성과 대시보드로 되돌린다.
+  if (!item || !item.channels.includes(state.currentChannel)) {
     item = MENU_ITEMS[0];
     state.currentView = item.id;
   }
@@ -1067,11 +1239,12 @@ function buildDeltaHtml(current, previous) {
   }
   const change = ((current - previous) / previous) * 100;
   if (Math.abs(change) < 0.05) {
-    return `<span class="kpi-sub">전기 대비 변동 없음</span>`;
+    return `<span class="kpi-sub">변동 없음</span>`;
   }
   const direction = change > 0 ? "up" : "down";
   const arrow = change > 0 ? "▲" : "▼";
-  return `<span class="kpi-sub ${direction}">${arrow} ${Math.abs(change).toFixed(1)}% 전기 대비</span>`;
+  const word = change > 0 ? "증가" : "감소";
+  return `<span class="kpi-sub ${direction}">${arrow} ${Math.abs(change).toFixed(1)}% ${word}</span>`;
 }
 
 function generateDailySeries(baseCost, baseRevenue, days = 14) {
