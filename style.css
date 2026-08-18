@@ -441,52 +441,92 @@ button, input, select {
   color: var(--text-main);
 }
 
-/* 분석기간 / 비교기간 */
+/* 분석기간 / 비교기간 - 연도/월/주차/일 선택 드롭다운 */
 
 .period-bar {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 14px;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 18px;
 }
 
-.period-field {
+.period-picker-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  padding: 10px 14px;
+}
+
+.period-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .period-label {
   font-size: 12.5px;
   font-weight: 700;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
-.period-input {
-  border: none;
-  font-size: 13px;
+.period-select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12.5px;
   color: var(--text-main);
-  background: transparent;
+  background: var(--bg);
   font-family: inherit;
+  cursor: pointer;
 }
 
-.period-input:focus {
+.period-select:focus {
   outline: none;
+  border-color: var(--accent);
 }
 
-.period-sep {
-  color: var(--text-faint);
-  font-size: 12px;
+.period-confirm-btn {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-.period-compare {
+.period-confirm-btn:hover {
+  background: var(--accent-dark);
+}
+
+.period-shortcuts {
+  display: flex;
+  gap: 6px;
+}
+
+.period-shortcut-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
   font-size: 12px;
-  color: var(--text-faint);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.period-shortcut-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
 }
 
 .empty-notice {
@@ -722,14 +762,12 @@ button, input, select {
   margin-bottom: 10px;
 }
 
-.breakdown-filter,
-.period-mode {
+.breakdown-filter {
   display: flex;
   gap: 6px;
 }
 
-.breakdown-filter-btn,
-.period-mode-btn {
+.breakdown-filter-btn {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text-muted);
@@ -741,14 +779,12 @@ button, input, select {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.breakdown-filter-btn:hover,
-.period-mode-btn:hover {
+.breakdown-filter-btn:hover {
   border-color: var(--accent);
   color: var(--accent-dark);
 }
 
-.breakdown-filter-btn.active,
-.period-mode-btn.active {
+.breakdown-filter-btn.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
