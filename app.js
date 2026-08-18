@@ -72,6 +72,107 @@ const SA_MOCK_TOTALS = {
 };
 
 /* ---------------------------------------------------------
+   4-1. SA 상품별(모델별) 성과 - 예시 데이터
+   ---------------------------------------------------------
+   네이버 SA는 모델/키워드 단위 데이터를 API로 못 받아온다 (추후 수기
+   raw 파일 업로드로 대체 예정). 그 전까지는 화면 구성만 먼저 보여주기
+   위한 예시 데이터다. 실데이터 연동 시 이 배열만 교체하면 된다.
+--------------------------------------------------------- */
+const MODEL_BADGE_COLORS = {
+  "냉장고 최주력": "badge-blue",
+  "김치냉장고 최주력": "badge-green",
+  "식기세척기 주력": "badge-orange",
+  "안마의자 주력": "badge-red",
+  "김치냉장고 추가": "badge-teal"
+};
+
+const SA_MODEL_MOCK = [
+  {
+    model: "RM70F90M1ZD", category: "냉장고 최주력",
+    impressions: 530112, clicks: 3333, cost: 714340, conversions: 242, revenue: 645656260,
+    keywords: [
+      { keyword: "AI추천", impressions: 312500, clicks: 1980, cost: 398200, conversions: 158, revenue: 421000000 },
+      { keyword: "삼성냉장고", impressions: 98200, clicks: 620, cost: 165400, conversions: 48, revenue: 128500000 },
+      { keyword: "냉장고", impressions: 84200, clicks: 510, cost: 112300, conversions: 28, revenue: 71200000 },
+      { keyword: "rm70f90m1zd", impressions: 35212, clicks: 223, cost: 38440, conversions: 8, revenue: 24956260 }
+    ]
+  },
+  {
+    model: "RM70F90M1GD", category: "냉장고 최주력",
+    impressions: 279702, clicks: 1262, cost: 251075, conversions: 73, revenue: 190803660,
+    keywords: [
+      { keyword: "AI추천", impressions: 269671, clicks: 1145, cost: 116732, conversions: 59, revenue: 152567220 },
+      { keyword: "삼성냉장고", impressions: 1798, clicks: 42, cost: 93951, conversions: 2, revenue: 5354820 },
+      { keyword: "냉장고", impressions: 7452, clicks: 22, cost: 32879, conversions: 4, revenue: 10709640 },
+      { keyword: "rm70f90m1gd", impressions: 118, clicks: 29, cost: 2871, conversions: 6, revenue: 16817160 },
+      { keyword: "냉장고4도어", impressions: 12, clicks: 2, cost: 1353, conversions: 0, revenue: 0 }
+    ]
+  },
+  {
+    model: "RM70F91R1A", category: "냉장고 최주력",
+    impressions: 144120, clicks: 273, cost: 30118, conversions: 2, revenue: 6107520,
+    keywords: [
+      { keyword: "AI추천", impressions: 98400, clicks: 165, cost: 18200, conversions: 1, revenue: 3200000 },
+      { keyword: "냉장고", impressions: 32100, clicks: 74, cost: 8100, conversions: 1, revenue: 2907520 },
+      { keyword: "rm70f91r1a", impressions: 13620, clicks: 34, cost: 3818, conversions: 0, revenue: 0 }
+    ]
+  },
+  {
+    model: "RK70F49M1A", category: "김치냉장고 최주력",
+    impressions: 266371, clicks: 924, cost: 271865, conversions: 52, revenue: 134014900,
+    keywords: [
+      { keyword: "AI추천", impressions: 180200, clicks: 610, cost: 178400, conversions: 34, revenue: 89200000 },
+      { keyword: "김치냉장고", impressions: 52400, clicks: 198, cost: 62100, conversions: 12, revenue: 32100000 },
+      { keyword: "삼성김치냉장고", impressions: 21600, clicks: 82, cost: 21365, conversions: 5, revenue: 10500000 },
+      { keyword: "rk70f49m1a", impressions: 12171, clicks: 34, cost: 10000, conversions: 1, revenue: 2214900 }
+    ]
+  },
+  {
+    model: "RK70F49M1ZG", category: "김치냉장고 최주력",
+    impressions: 186557, clicks: 435, cost: 97108, conversions: 14, revenue: 36462330,
+    keywords: [
+      { keyword: "AI추천", impressions: 132400, clicks: 290, cost: 62800, conversions: 9, revenue: 24200000 },
+      { keyword: "김치냉장고", impressions: 38200, clicks: 96, cost: 24500, conversions: 4, revenue: 9800000 },
+      { keyword: "rk70f49m1zg", impressions: 15957, clicks: 49, cost: 9808, conversions: 1, revenue: 2462330 }
+    ]
+  },
+  {
+    model: "RQ33DG71J2ET", category: "김치냉장고 최주력",
+    impressions: 212583, clicks: 886, cost: 137489, conversions: 72, revenue: 121449910,
+    keywords: [
+      { keyword: "AI추천", impressions: 142800, clicks: 610, cost: 95400, conversions: 51, revenue: 88200000 },
+      { keyword: "김치냉장고", impressions: 45600, clicks: 190, cost: 30200, conversions: 15, revenue: 25100000 },
+      { keyword: "rq33dg71j2et", impressions: 24183, clicks: 86, cost: 11889, conversions: 6, revenue: 8149910 }
+    ]
+  },
+  {
+    model: "DW80F73Y1FEW", category: "식기세척기 주력",
+    impressions: 137175, clicks: 396, cost: 41118, conversions: 14, revenue: 17748360,
+    keywords: [
+      { keyword: "식기세척기", impressions: 88400, clicks: 260, cost: 27200, conversions: 9, revenue: 11300000 },
+      { keyword: "삼성식기세척기", impressions: 32100, clicks: 96, cost: 10218, conversions: 4, revenue: 5200000 },
+      { keyword: "dw80f73y1few", impressions: 16675, clicks: 40, cost: 3700, conversions: 1, revenue: 1248360 }
+    ]
+  },
+  {
+    model: "NZ63DG403CFK", category: "안마의자 주력",
+    impressions: 20688, clicks: 18, cost: 2090, conversions: 1, revenue: 783870,
+    keywords: [
+      { keyword: "안마의자", impressions: 15200, clicks: 12, cost: 1500, conversions: 1, revenue: 783870 },
+      { keyword: "nz63dg403cfk", impressions: 5488, clicks: 6, cost: 590, conversions: 0, revenue: 0 }
+    ]
+  },
+  {
+    model: "RQ33DB74D201", category: "김치냉장고 추가",
+    impressions: 113469, clicks: 291, cost: 29920, conversions: 10, revenue: 18605330,
+    keywords: [
+      { keyword: "김치냉장고", impressions: 72400, clicks: 198, cost: 20100, conversions: 7, revenue: 12800000 },
+      { keyword: "rq33db74d201", impressions: 41069, clicks: 93, cost: 9820, conversions: 3, revenue: 5805330 }
+    ]
+  }
+];
+
+/* ---------------------------------------------------------
    4. 인증
    ---------------------------------------------------------
    로그인 크리덴셜(광고주 naver_customer_id) 검증은 항상 Supabase Edge
@@ -281,15 +382,36 @@ const analysisWeekField = document.getElementById("analysisWeekField");
 const analysisMonthField = document.getElementById("analysisMonthField");
 const analysisFromInput = document.getElementById("analysisFromInput");
 const analysisToInput = document.getElementById("analysisToInput");
-const analysisWeekInput = document.getElementById("analysisWeekInput");
+const analysisWeekMonthInput = document.getElementById("analysisWeekMonthInput");
+const analysisWeekSelect = document.getElementById("analysisWeekSelect");
 const analysisMonthInput = document.getElementById("analysisMonthInput");
 const compareCustomField = document.getElementById("compareCustomField");
 const compareWeekField = document.getElementById("compareWeekField");
 const compareMonthField = document.getElementById("compareMonthField");
 const compareFromInput = document.getElementById("compareFromInput");
 const compareToInput = document.getElementById("compareToInput");
-const compareWeekInput = document.getElementById("compareWeekInput");
+const compareWeekMonthInput = document.getElementById("compareWeekMonthInput");
+const compareWeekSelect = document.getElementById("compareWeekSelect");
 const compareMonthInput = document.getElementById("compareMonthInput");
+
+const viewModel = document.getElementById("view-model");
+const modelCardGrid = document.getElementById("modelCardGrid");
+const modelSearchInput = document.getElementById("modelSearchInput");
+const modelDetailModal = document.getElementById("modelDetailModal");
+const modelDetailCloseBtn = document.getElementById("modelDetailCloseBtn");
+const modelDetailBadge = document.getElementById("modelDetailBadge");
+const modelDetailTitle = document.getElementById("modelDetailTitle");
+const modelDetailPeriodLabel = document.getElementById("modelDetailPeriodLabel");
+const modelDetailImpressions = document.getElementById("modelDetailImpressions");
+const modelDetailClicks = document.getElementById("modelDetailClicks");
+const modelDetailCpc = document.getElementById("modelDetailCpc");
+const modelDetailCtr = document.getElementById("modelDetailCtr");
+const modelDetailCvr = document.getElementById("modelDetailCvr");
+const modelDetailCost = document.getElementById("modelDetailCost");
+const modelDetailConversions = document.getElementById("modelDetailConversions");
+const modelDetailRevenue = document.getElementById("modelDetailRevenue");
+const modelDetailRoas = document.getElementById("modelDetailRoas");
+const modelDetailKeywordBody = document.getElementById("modelDetailKeywordBody");
 
 const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
 
@@ -358,32 +480,60 @@ function formatPeriodRange(period) {
   return `${period.from.replace(/-/g, ".")} ~ ${period.to.replace(/-/g, ".")}`;
 }
 
-// --- 주별(ISO 8601 week) / 월별 선택 -> 실제 from~to 날짜로 변환 ---
-// <input type="week">은 "YYYY-Www" 값을 준다 (예: "2026-W33" = 2026년 33주차).
-function toISOWeekString(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7)); // 이번 주 목요일로 이동
-  const year = d.getFullYear();
-  const jan4 = new Date(year, 0, 4);
-  const week1Monday = new Date(jan4);
-  week1Monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-  const weekNum = Math.round((d - week1Monday) / (7 * 86400000)) + 1;
-  return `${year}-W${String(weekNum).padStart(2, "0")}`;
+// --- 주별(월 기준 N주차, 월~일) / 월별 선택 -> 실제 from~to 날짜로 변환 ---
+// ISO 8601 주차 대신, "그 달 안에서 몇 번째 월~일 구간인가"로 주차를 나눈다.
+// 예: 8월 1일이 토요일이면 8/1~8/2(2일뿐)가 1주차, 8/3(월)~8/9가 2주차.
+function computeMonthWeeks(year, month) {
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  const weeks = [];
+  let cursor = new Date(first);
+  let weekNum = 1;
+
+  while (cursor <= last) {
+    const dow = cursor.getDay(); // 0=일 ~ 6=토
+    const chunkEnd = new Date(cursor);
+    if (dow === 1) {
+      chunkEnd.setDate(chunkEnd.getDate() + 6); // 월요일 시작 -> 그 주 일요일까지
+    } else {
+      const daysUntilMonday = (8 - dow) % 7; // 다음 월요일 전날까지
+      chunkEnd.setDate(chunkEnd.getDate() + Math.max(daysUntilMonday - 1, 0));
+    }
+    if (chunkEnd > last) chunkEnd.setTime(last.getTime());
+
+    weeks.push({ label: `${weekNum}주차`, from: toISODate(cursor), to: toISODate(chunkEnd) });
+
+    cursor = new Date(chunkEnd);
+    cursor.setDate(cursor.getDate() + 1);
+    weekNum += 1;
+  }
+
+  return weeks;
 }
 
-function isoWeekToRange(weekStr) {
-  const [yearStr, weekPart] = weekStr.split("-W");
-  const year = Number(yearStr);
-  const week = Number(weekPart);
-  const jan4 = new Date(year, 0, 4);
-  const week1Monday = new Date(jan4);
-  week1Monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
-  const monday = new Date(week1Monday);
-  monday.setDate(week1Monday.getDate() + (week - 1) * 7);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return { from: toISODate(monday), to: toISODate(sunday) };
+function findWeekContaining(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  const weeks = computeMonthWeeks(year, month);
+  const week = weeks.find((w) => dateStr >= w.from && dateStr <= w.to) || weeks[0];
+  return { year, month, week };
+}
+
+function formatShortDate(iso) {
+  const [, m, d] = iso.split("-");
+  return `${Number(m)}/${Number(d)}`;
+}
+
+function populateWeekSelect(selectEl, year, month) {
+  const weeks = computeMonthWeeks(year, month);
+  selectEl.innerHTML = weeks
+    .map((w) => `<option value="${w.from}|${w.to}">${w.label} (${formatShortDate(w.from)}~${formatShortDate(w.to)})</option>`)
+    .join("");
+}
+
+function selectWeekOption(selectEl, week) {
+  selectEl.value = `${week.from}|${week.to}`;
 }
 
 // <input type="month">은 "YYYY-MM" 값을 준다.
@@ -523,11 +673,19 @@ function setPeriodMode(mode) {
   compareMonthField.hidden = mode !== "month";
 
   if (mode === "week") {
-    const now = new Date();
-    const lastWeek = new Date(now);
-    lastWeek.setDate(lastWeek.getDate() - 7);
-    analysisWeekInput.value = toISOWeekString(now);
-    compareWeekInput.value = toISOWeekString(lastWeek);
+    const today = toISODate(new Date());
+    const current = findWeekContaining(today);
+    analysisWeekMonthInput.value = `${current.year}-${String(current.month).padStart(2, "0")}`;
+    populateWeekSelect(analysisWeekSelect, current.year, current.month);
+    selectWeekOption(analysisWeekSelect, current.week);
+
+    const priorDate = new Date(`${current.week.from}T00:00:00`);
+    priorDate.setDate(priorDate.getDate() - 7);
+    const prior = findWeekContaining(toISODate(priorDate));
+    compareWeekMonthInput.value = `${prior.year}-${String(prior.month).padStart(2, "0")}`;
+    populateWeekSelect(compareWeekSelect, prior.year, prior.month);
+    selectWeekOption(compareWeekSelect, prior.week);
+
     applyWeekPeriods();
   } else if (mode === "month") {
     const now = new Date();
@@ -544,9 +702,11 @@ function setPeriodMode(mode) {
 }
 
 function applyWeekPeriods() {
-  if (!analysisWeekInput.value || !compareWeekInput.value) return;
-  state.analysisPeriod = isoWeekToRange(analysisWeekInput.value);
-  state.comparisonPeriod = isoWeekToRange(compareWeekInput.value);
+  if (!analysisWeekSelect.value || !compareWeekSelect.value) return;
+  const [aFrom, aTo] = analysisWeekSelect.value.split("|");
+  const [cFrom, cTo] = compareWeekSelect.value.split("|");
+  state.analysisPeriod = { from: aFrom, to: aTo };
+  state.comparisonPeriod = { from: cFrom, to: cTo };
   refreshCurrentPeriodView();
 }
 
@@ -557,8 +717,18 @@ function applyMonthPeriods() {
   refreshCurrentPeriodView();
 }
 
-analysisWeekInput.addEventListener("change", applyWeekPeriods);
-compareWeekInput.addEventListener("change", applyWeekPeriods);
+analysisWeekMonthInput.addEventListener("change", () => {
+  const [y, m] = analysisWeekMonthInput.value.split("-").map(Number);
+  populateWeekSelect(analysisWeekSelect, y, m);
+  applyWeekPeriods();
+});
+compareWeekMonthInput.addEventListener("change", () => {
+  const [y, m] = compareWeekMonthInput.value.split("-").map(Number);
+  populateWeekSelect(compareWeekSelect, y, m);
+  applyWeekPeriods();
+});
+analysisWeekSelect.addEventListener("change", applyWeekPeriods);
+compareWeekSelect.addEventListener("change", applyWeekPeriods);
 analysisMonthInput.addEventListener("change", applyMonthPeriods);
 compareMonthInput.addEventListener("change", applyMonthPeriods);
 
@@ -765,6 +935,177 @@ function renderSaBreakdownPlaceholder() {
   updateSortIndicators();
 }
 
+/* ---------------------------------------------------------
+   6-2. SA 상품별(모델별) 성과 뷰 - 도넛/막대+선 차트 + 모델 카드 + 키워드 모달
+--------------------------------------------------------- */
+function renderSaModelView() {
+  const models = SA_MODEL_MOCK.map((m) => ({ ...m, ...withDerivedMetrics(m) }));
+  const top5 = [...models].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+
+  renderModelDonutChart(top5);
+  renderModelCvrRoasChart(top5);
+  modelSearchInput.value = "";
+  renderModelCardGrid(models);
+}
+
+function renderModelDonutChart(top5) {
+  destroyChart("modelDonut");
+  const colors = ["#2563eb", "#38bdf8", "#22c55e", "#f59e0b", "#a855f7"];
+  state.charts.modelDonut = new Chart(document.getElementById("modelRevenueDonutChart"), {
+    type: "doughnut",
+    data: {
+      labels: top5.map((m) => m.model),
+      datasets: [{ data: top5.map((m) => m.revenue), backgroundColor: colors, borderWidth: 0 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "right", labels: { boxWidth: 12, font: { size: 12 } } },
+        tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${formatWon(ctx.parsed)}` } }
+      }
+    }
+  });
+}
+
+function renderModelCvrRoasChart(top5) {
+  destroyChart("modelCvrRoas");
+  state.charts.modelCvrRoas = new Chart(document.getElementById("modelCvrRoasChart"), {
+    data: {
+      labels: top5.map((m) => m.model),
+      datasets: [
+        {
+          type: "bar",
+          label: "전환율(CVR) %",
+          data: top5.map((m) => Number(m.cvr.toFixed(1))),
+          backgroundColor: "#2563eb",
+          yAxisID: "y"
+        },
+        {
+          type: "line",
+          label: "ROAS (천%)",
+          data: top5.map((m) => Number((m.roas / 1000).toFixed(1))),
+          borderColor: "#ef4444",
+          backgroundColor: "#ef4444",
+          yAxisID: "y1",
+          tension: 0.3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } } },
+      scales: {
+        y: { position: "left", title: { display: true, text: "CVR (%)" }, grid: { color: "rgba(0,0,0,0.05)" } },
+        y1: { position: "right", title: { display: true, text: "ROAS (천%)" }, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+}
+
+function renderModelCardGrid(models) {
+  const q = modelSearchInput.value.trim().toLowerCase();
+  const filtered = q
+    ? models.filter((m) => m.model.toLowerCase().includes(q) || m.category.toLowerCase().includes(q))
+    : models;
+
+  if (filtered.length === 0) {
+    modelCardGrid.innerHTML = '<p class="grouped-empty">검색 결과가 없습니다.</p>';
+    return;
+  }
+
+  modelCardGrid.innerHTML = filtered
+    .map((m) => {
+      const badgeClass = MODEL_BADGE_COLORS[m.category] || "badge-blue";
+      const idx = SA_MODEL_MOCK.findIndex((x) => x.model === m.model);
+      return `
+        <div class="model-card" data-model-index="${idx}">
+          <div class="model-card-top">
+            <span class="model-card-name">${escapeHtml(m.model)}</span>
+            <span class="model-badge ${badgeClass}">${escapeHtml(m.category)}</span>
+          </div>
+          <div class="model-card-metrics">
+            <div><span class="model-metric-label">노출수</span><span class="model-metric-value">${formatNumber(m.impressions)}</span></div>
+            <div><span class="model-metric-label">클릭수</span><span class="model-metric-value">${formatNumber(m.clicks)}</span></div>
+            <div><span class="model-metric-label">총비용</span><span class="model-metric-value">${formatWon(m.cost)}</span></div>
+            <div><span class="model-metric-label">전환수</span><span class="model-metric-value">${formatNumber(m.conversions)}건</span></div>
+          </div>
+          <div class="model-card-bottom">
+            <div><span class="model-metric-label">총매출</span><span class="model-metric-value strong">${formatWon(m.revenue)}</span></div>
+            <div class="model-card-bottom-right">
+              <span class="model-metric-label">CVR ${formatPercent(m.cvr)}</span>
+              <span class="model-metric-value accent">ROAS ${formatPercent(m.roas)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+modelCardGrid.addEventListener("click", (e) => {
+  const card = e.target.closest(".model-card");
+  if (!card) return;
+  const model = SA_MODEL_MOCK[Number(card.dataset.modelIndex)];
+  if (model) openModelDetailModal(model);
+});
+
+modelSearchInput.addEventListener("input", () => {
+  const models = SA_MODEL_MOCK.map((m) => ({ ...m, ...withDerivedMetrics(m) }));
+  renderModelCardGrid(models);
+});
+
+function openModelDetailModal(model) {
+  const d = withDerivedMetrics(model);
+  const badgeClass = MODEL_BADGE_COLORS[model.category] || "badge-blue";
+
+  modelDetailBadge.className = `model-badge ${badgeClass}`;
+  modelDetailBadge.textContent = model.category;
+  modelDetailTitle.textContent = model.model;
+  modelDetailPeriodLabel.textContent = state.analysisPeriod ? formatPeriodRange(state.analysisPeriod) : "";
+
+  modelDetailImpressions.textContent = formatNumber(d.impressions);
+  modelDetailClicks.textContent = formatNumber(d.clicks);
+  modelDetailCpc.textContent = formatWon(d.cpc);
+  modelDetailCtr.textContent = formatPercent(d.ctr);
+  modelDetailCvr.textContent = formatPercent(d.cvr);
+
+  modelDetailCost.textContent = formatWon(d.cost);
+  modelDetailConversions.textContent = `${formatNumber(d.conversions)}건`;
+  modelDetailRevenue.textContent = formatWon(d.revenue);
+  modelDetailRoas.textContent = formatPercent(d.roas);
+
+  modelDetailKeywordBody.innerHTML = (model.keywords || [])
+    .map(
+      (k) => `
+        <tr>
+          <td>${escapeHtml(k.keyword)}</td>
+          <td>${formatNumber(k.impressions)}</td>
+          <td>${formatNumber(k.clicks)}</td>
+          <td>${formatWon(k.cost)}</td>
+          <td>${formatNumber(k.conversions)}</td>
+          <td>${formatWon(k.revenue)}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  modelDetailModal.hidden = false;
+}
+
+function closeModelDetailModal() {
+  modelDetailModal.hidden = true;
+}
+
+modelDetailCloseBtn.addEventListener("click", closeModelDetailModal);
+modelDetailModal.addEventListener("click", (e) => {
+  if (e.target === modelDetailModal) closeModelDetailModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !modelDetailModal.hidden) closeModelDetailModal();
+});
+
 function renderBreakdownRows() {
   updateSortIndicators();
 
@@ -879,6 +1220,7 @@ function renderCurrentView() {
 
   viewOverview.hidden = true;
   viewTrend.hidden = true;
+  viewModel.hidden = true;
   viewGrouped.hidden = true;
   viewUpload.hidden = true;
   viewPlaceholder.hidden = true;
@@ -893,6 +1235,9 @@ function renderCurrentView() {
     renderTrendView();
   } else if (item.id === "upload") {
     viewUpload.hidden = false;
+  } else if (item.id === "product" && !isGfa) {
+    viewModel.hidden = false;
+    renderSaModelView();
   } else if (item.gfaRawType && isGfa) {
     viewGrouped.hidden = false;
     renderGroupedPerformance(item);
