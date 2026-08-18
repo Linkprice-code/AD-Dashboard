@@ -94,7 +94,7 @@
 
         <div class="period-bar">
           <div class="period-mode" id="periodMode" role="tablist">
-            <button type="button" class="period-mode-btn active" data-mode="custom">직접선택</button>
+            <button type="button" class="period-mode-btn active" data-mode="custom">일별</button>
             <button type="button" class="period-mode-btn" data-mode="week">주별</button>
             <button type="button" class="period-mode-btn" data-mode="month">월별</button>
           </div>
@@ -107,7 +107,8 @@
           </div>
           <div class="period-field" id="analysisWeekField" hidden>
             <span class="period-label">분석기간(주)</span>
-            <input type="week" id="analysisWeekInput" class="period-input">
+            <input type="month" id="analysisWeekMonthInput" class="period-input">
+            <select id="analysisWeekSelect" class="period-input period-select"></select>
           </div>
           <div class="period-field" id="analysisMonthField" hidden>
             <span class="period-label">분석기간(월)</span>
@@ -122,7 +123,8 @@
           </div>
           <div class="period-field" id="compareWeekField" hidden>
             <span class="period-label">비교기간(주)</span>
-            <input type="week" id="compareWeekInput" class="period-input">
+            <input type="month" id="compareWeekMonthInput" class="period-input">
+            <select id="compareWeekSelect" class="period-input period-select"></select>
           </div>
           <div class="period-field" id="compareMonthField" hidden>
             <span class="period-label">비교기간(월)</span>
@@ -219,6 +221,32 @@
         </div>
       </div>
 
+      <!-- SA 전용: 상품별(모델별) 성과 뷰 -->
+      <div class="view" id="view-model" hidden>
+        <h2 class="view-title">SA 상품별(모델별) 성과</h2>
+        <p class="empty-notice">예시 데이터로 화면 구성만 먼저 보여드립니다. 실제 상품별 raw 파일 업로드 기능 연동 후 실데이터로 교체됩니다.</p>
+
+        <div class="chart-grid">
+          <div class="chart-card">
+            <h3 class="chart-card-title">Top 5 모델 매출 비중</h3>
+            <div class="chart-canvas-wrap"><canvas id="modelRevenueDonutChart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3 class="chart-card-title">주요 5대 모델 전환율(CVR) &amp; ROAS</h3>
+            <div class="chart-canvas-wrap"><canvas id="modelCvrRoasChart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="model-list-card">
+          <div class="model-list-header">
+            <h3 class="model-list-title">전 품목 모델별 성과 상세</h3>
+            <input type="text" id="modelSearchInput" class="model-search-input" placeholder="모델명 검색">
+          </div>
+          <span class="breakdown-hint">카드를 클릭하면 상세 키워드 데이터가 열립니다.</span>
+          <div class="model-card-grid" id="modelCardGrid"></div>
+        </div>
+      </div>
+
       <!-- GFA 그룹별 성과 뷰 (캠페인별 / 광고그룹별 / 상품별 공용) -->
       <div class="view" id="view-grouped" hidden>
         <h2 class="view-title" id="groupedTitle">GFA 성과</h2>
@@ -307,6 +335,48 @@
     </main>
   </div>
 </section>
+
+<!-- 모델 상세 모달 (SA 상품별 데이터 카드 클릭 시) -->
+<div class="modal-overlay" id="modelDetailModal" hidden>
+  <div class="modal-box">
+    <button type="button" class="modal-close-btn" id="modelDetailCloseBtn" aria-label="닫기">&times;</button>
+    <span class="model-badge" id="modelDetailBadge"></span>
+    <h3 class="modal-title" id="modelDetailTitle"></h3>
+
+    <h4 class="modal-section-title"><span id="modelDetailPeriodLabel"></span> 모델 총합 데이터</h4>
+    <div class="modal-stat-grid">
+      <div class="modal-stat-box"><span class="modal-stat-label">노출수</span><span class="modal-stat-value" id="modelDetailImpressions"></span></div>
+      <div class="modal-stat-box"><span class="modal-stat-label">클릭수</span><span class="modal-stat-value" id="modelDetailClicks"></span></div>
+      <div class="modal-stat-box"><span class="modal-stat-label">평균 CPC</span><span class="modal-stat-value" id="modelDetailCpc"></span></div>
+      <div class="modal-stat-box"><span class="modal-stat-label">클릭률(CTR)</span><span class="modal-stat-value accent" id="modelDetailCtr"></span></div>
+      <div class="modal-stat-box"><span class="modal-stat-label">전환율(CVR)</span><span class="modal-stat-value accent" id="modelDetailCvr"></span></div>
+    </div>
+
+    <div class="modal-summary-bar">
+      <div class="modal-summary-item"><span class="modal-summary-label">총 비용</span><span class="modal-summary-value" id="modelDetailCost"></span></div>
+      <div class="modal-summary-item"><span class="modal-summary-label">총 전환수</span><span class="modal-summary-value good" id="modelDetailConversions"></span></div>
+      <div class="modal-summary-item"><span class="modal-summary-label">총 전환금액</span><span class="modal-summary-value warn" id="modelDetailRevenue"></span></div>
+      <div class="modal-summary-item"><span class="modal-summary-label">광고수익률(ROAS)</span><span class="modal-summary-value accent" id="modelDetailRoas"></span></div>
+    </div>
+
+    <h4 class="modal-section-title">상세 키워드 성과 리스트</h4>
+    <div class="table-wrap modal-table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>키워드명</th>
+            <th>노출수</th>
+            <th>클릭수</th>
+            <th>총비용</th>
+            <th>총전환수</th>
+            <th>총전환금액</th>
+          </tr>
+        </thead>
+        <tbody id="modelDetailKeywordBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
