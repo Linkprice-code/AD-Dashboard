@@ -92,7 +92,71 @@
       <div class="view" id="view-overview">
         <h2 class="view-title" id="overviewTitle">SA 성과 대시보드</h2>
 
+        <div class="period-bar">
+          <div class="period-field">
+            <span class="period-label">분석기간</span>
+            <input type="date" id="analysisFromInput" class="period-input">
+            <span class="period-sep">~</span>
+            <input type="date" id="analysisToInput" class="period-input">
+          </div>
+          <div class="period-compare" id="comparePeriodText"></div>
+        </div>
+
+        <p class="empty-notice" id="overviewEmptyNotice" hidden></p>
+
         <div class="kpi-grid" id="kpiGrid"></div>
+
+        <div class="breakdown-section">
+          <div class="breakdown-card">
+            <div class="breakdown-header">
+              <h3 class="breakdown-title">캠페인별 성과</h3>
+              <span class="breakdown-hint">행을 클릭하면 아래 그룹별 성과가 필터링됩니다</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>캠페인</th>
+                    <th>광고비</th>
+                    <th>광고매출</th>
+                    <th>ROAS</th>
+                    <th>클릭수</th>
+                    <th>CTR</th>
+                    <th>전환수</th>
+                    <th>CVR</th>
+                    <th>CPA</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewCampaignTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="breakdown-card">
+            <div class="breakdown-header">
+              <h3 class="breakdown-title" id="overviewGroupTitle">광고그룹별 성과</h3>
+              <button type="button" class="breakdown-reset" id="campaignResetBtn" hidden>전체 캠페인 보기</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>광고그룹</th>
+                    <th>광고비</th>
+                    <th>광고매출</th>
+                    <th>ROAS</th>
+                    <th>클릭수</th>
+                    <th>CTR</th>
+                    <th>전환수</th>
+                    <th>CVR</th>
+                    <th>CPA</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewGroupTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
         <div class="chart-grid">
           <div class="chart-card">
@@ -138,29 +202,52 @@
       <!-- GFA 데이터 업로드 뷰 -->
       <div class="view" id="view-upload" hidden>
         <h2 class="view-title">GFA 데이터 업로드</h2>
+        <p class="upload-intro">
+          네이버 GFA는 캠페인 / 그룹 / 상품(ADV) 리포트를 각각 따로 내려주기 때문에,
+          아래 3개 칸에 나눠서 업로드합니다. 컬럼 순서는 상관없고 헤더 이름만 맞으면 됩니다.
+        </p>
 
-        <div class="upload-card">
-          <p class="upload-guide">
-            GFA는 네이버 광고 API 연동 전이라 원시 데이터를 CSV 파일로 직접 업로드합니다.
-            아래 컬럼명을 <b>첫 줄(헤더)</b>에 그대로 포함한 CSV 파일을 업로드해주세요. 컬럼 순서는 상관없습니다.
-          </p>
-          <code class="upload-columns">date, campaign, ad_group, product, impressions, clicks, cost, conversions, revenue</code>
-          <p class="upload-example">
-            예시 한 줄: <code>2026-08-01,여름신상프로모션,배너그룹A,ADVoost,15200,320,540000,18,3200000</code>
-          </p>
-          <a class="upload-template-link" id="downloadTemplateLink" download="gfa_upload_template.csv">CSV 템플릿 다운로드</a>
+        <div class="upload-grid">
 
-          <form id="uploadForm" class="upload-form">
-            <input type="file" id="uploadFileInput" class="upload-file-input" accept=".csv" required>
-            <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
-          </form>
+          <div class="upload-card">
+            <h3 class="upload-card-title">캠페인 Raw</h3>
+            <code class="upload-columns">date, campaign, impressions, clicks, cost, conversions, revenue</code>
+            <a class="upload-template-link" data-template="campaign" download="gfa_campaign_raw_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form" data-raw-type="campaign">
+              <input type="file" class="upload-file-input" accept=".csv" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
 
-          <p id="uploadStatus" class="upload-status" hidden></p>
+          <div class="upload-card">
+            <h3 class="upload-card-title">그룹 Raw</h3>
+            <code class="upload-columns">date, campaign, ad_group, impressions, clicks, cost, conversions, revenue</code>
+            <a class="upload-template-link" data-template="adgroup" download="gfa_adgroup_raw_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form" data-raw-type="adgroup">
+              <input type="file" class="upload-file-input" accept=".csv" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
 
-          <p class="upload-note">
-            같은 날짜(date)로 다시 업로드하면, 그 날짜의 기존 GFA 데이터는 새 데이터로 교체됩니다 (중복 누적 방지).
-          </p>
+          <div class="upload-card">
+            <h3 class="upload-card-title">ADV Raw</h3>
+            <code class="upload-columns">date, product, impressions, clicks, cost, conversions, revenue</code>
+            <a class="upload-template-link" data-template="adv" download="gfa_adv_raw_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form" data-raw-type="adv">
+              <input type="file" class="upload-file-input" accept=".csv" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
         </div>
+
+        <p class="upload-note">
+          같은 종류(캠페인/그룹/ADV)에서 같은 날짜(date)로 다시 업로드하면, 그 날짜의 기존 데이터는
+          새 데이터로 교체됩니다 (중복 누적 방지).
+        </p>
       </div>
 
       <!-- 준비 중 플레이스홀더 뷰 (그래프 추이, 일별/월별/카테고리별 데이터, 소재별 성과 등) -->
