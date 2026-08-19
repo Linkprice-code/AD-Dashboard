@@ -20,6 +20,7 @@ const ADVERTISER_LOGIN_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/advertise
 const GFA_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-upload`;
 const GFA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-performance`;
 const SA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-performance`;
+const SA_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-keyword-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -33,13 +34,9 @@ const MENU_ITEMS = [
   { id: "overview", label: "성과 대시보드", channels: ["SA", "GFA"] },
   { id: "trend", label: "그래프 추이", channels: ["SA", "GFA"] },
   { id: "product", label: "상품별 데이터", channels: ["SA", "GFA"], gfaRawType: "adv" },
-  { id: "powerlink", label: "파워링크", channels: ["SA"] },
-  { id: "shopping", label: "쇼핑검색", channels: ["SA"] },
-  { id: "brand", label: "브랜드검색", channels: ["SA"] },
-  { id: "daily", label: "일별 데이터", channels: ["GFA"] },
-  { id: "monthly", label: "월별 데이터", channels: ["GFA"] },
-  { id: "campaign", label: "캠페인별 성과", channels: ["GFA"], gfaRawType: "campaign" },
-  { id: "adgroup", label: "광고그룹별 성과", channels: ["GFA"], gfaRawType: "adgroup" },
+  { id: "powerlink", label: "파워링크", channels: ["SA"], naverCampaignType: "WEB_SITE" },
+  { id: "shopping", label: "쇼핑검색", channels: ["SA"], naverCampaignType: "SHOPPING" },
+  { id: "brand", label: "브랜드검색", channels: ["SA"], naverCampaignType: "BRAND_SEARCH" },
   { id: "creative", label: "소재별 성과", channels: ["GFA"] },
   { id: "upload", label: "데이터 업로드", channels: ["GFA"] }
 ];
@@ -80,95 +77,95 @@ const SA_CAMPAIGN_TYPE_TO_NAVER = {
    위한 예시 데이터다. 실데이터 연동 시 이 배열만 교체하면 된다.
 --------------------------------------------------------- */
 const MODEL_BADGE_COLORS = {
-  "냉장고 최주력": "badge-blue",
-  "김치냉장고 최주력": "badge-green",
-  "식기세척기 주력": "badge-orange",
-  "안마의자 주력": "badge-red",
-  "김치냉장고 추가": "badge-teal"
+  "아기침대 최주력": "badge-blue",
+  "소파 주력": "badge-green",
+  "식탁 주력": "badge-orange",
+  "수납가구 주력": "badge-red",
+  "수납가구 추가": "badge-teal"
 };
 
 const SA_MODEL_MOCK = [
   {
-    model: "RM70F90M1ZD", category: "냉장고 최주력",
+    model: "휴고 플러스 도어형 데이베드 저상형 아기침대", category: "아기침대 최주력",
     impressions: 530112, clicks: 3333, cost: 714340, conversions: 242, revenue: 645656260,
     keywords: [
-      { keyword: "AI추천", impressions: 312500, clicks: 1980, cost: 398200, conversions: 158, revenue: 421000000 },
-      { keyword: "삼성냉장고", impressions: 98200, clicks: 620, cost: 165400, conversions: 48, revenue: 128500000 },
-      { keyword: "냉장고", impressions: 84200, clicks: 510, cost: 112300, conversions: 28, revenue: 71200000 },
-      { keyword: "rm70f90m1zd", impressions: 35212, clicks: 223, cost: 38440, conversions: 8, revenue: 24956260 }
+      { keyword: "아기침대", impressions: 312500, clicks: 1980, cost: 398200, conversions: 158, revenue: 421000000 },
+      { keyword: "저상형아기침대", impressions: 98200, clicks: 620, cost: 165400, conversions: 48, revenue: 128500000 },
+      { keyword: "홈앤힐 아기침대", impressions: 84200, clicks: 510, cost: 112300, conversions: 28, revenue: 71200000 },
+      { keyword: "휴고 데이베드", impressions: 35212, clicks: 223, cost: 38440, conversions: 8, revenue: 24956260 }
     ]
   },
   {
-    model: "RM70F90M1GD", category: "냉장고 최주력",
+    model: "아루 트윈 저상형 패밀리 침대 프레임", category: "아기침대 최주력",
     impressions: 279702, clicks: 1262, cost: 251075, conversions: 73, revenue: 190803660,
     keywords: [
-      { keyword: "AI추천", impressions: 269671, clicks: 1145, cost: 116732, conversions: 59, revenue: 152567220 },
-      { keyword: "삼성냉장고", impressions: 1798, clicks: 42, cost: 93951, conversions: 2, revenue: 5354820 },
-      { keyword: "냉장고", impressions: 7452, clicks: 22, cost: 32879, conversions: 4, revenue: 10709640 },
-      { keyword: "rm70f90m1gd", impressions: 118, clicks: 29, cost: 2871, conversions: 6, revenue: 16817160 },
-      { keyword: "냉장고4도어", impressions: 12, clicks: 2, cost: 1353, conversions: 0, revenue: 0 }
+      { keyword: "아기침대", impressions: 269671, clicks: 1145, cost: 116732, conversions: 59, revenue: 152567220 },
+      { keyword: "패밀리침대", impressions: 1798, clicks: 42, cost: 93951, conversions: 2, revenue: 5354820 },
+      { keyword: "저상형침대", impressions: 7452, clicks: 22, cost: 32879, conversions: 4, revenue: 10709640 },
+      { keyword: "아루 트윈", impressions: 118, clicks: 29, cost: 2871, conversions: 6, revenue: 16817160 },
+      { keyword: "슈퍼싱글 침대", impressions: 12, clicks: 2, cost: 1353, conversions: 0, revenue: 0 }
     ]
   },
   {
-    model: "RM70F91R1A", category: "냉장고 최주력",
+    model: "리버시 양면 하이가드 저상형 패밀리침대", category: "아기침대 최주력",
     impressions: 144120, clicks: 273, cost: 30118, conversions: 2, revenue: 6107520,
     keywords: [
-      { keyword: "AI추천", impressions: 98400, clicks: 165, cost: 18200, conversions: 1, revenue: 3200000 },
-      { keyword: "냉장고", impressions: 32100, clicks: 74, cost: 8100, conversions: 1, revenue: 2907520 },
-      { keyword: "rm70f91r1a", impressions: 13620, clicks: 34, cost: 3818, conversions: 0, revenue: 0 }
+      { keyword: "하이가드침대", impressions: 98400, clicks: 165, cost: 18200, conversions: 1, revenue: 3200000 },
+      { keyword: "패밀리침대", impressions: 32100, clicks: 74, cost: 8100, conversions: 1, revenue: 2907520 },
+      { keyword: "리버시 양면", impressions: 13620, clicks: 34, cost: 3818, conversions: 0, revenue: 0 }
     ]
   },
   {
-    model: "RK70F49M1A", category: "김치냉장고 최주력",
+    model: "모던 3인용 패브릭 소파", category: "소파 주력",
     impressions: 266371, clicks: 924, cost: 271865, conversions: 52, revenue: 134014900,
     keywords: [
-      { keyword: "AI추천", impressions: 180200, clicks: 610, cost: 178400, conversions: 34, revenue: 89200000 },
-      { keyword: "김치냉장고", impressions: 52400, clicks: 198, cost: 62100, conversions: 12, revenue: 32100000 },
-      { keyword: "삼성김치냉장고", impressions: 21600, clicks: 82, cost: 21365, conversions: 5, revenue: 10500000 },
-      { keyword: "rk70f49m1a", impressions: 12171, clicks: 34, cost: 10000, conversions: 1, revenue: 2214900 }
+      { keyword: "3인용소파", impressions: 180200, clicks: 610, cost: 178400, conversions: 34, revenue: 89200000 },
+      { keyword: "패브릭소파", impressions: 52400, clicks: 198, cost: 62100, conversions: 12, revenue: 32100000 },
+      { keyword: "홈앤힐 소파", impressions: 21600, clicks: 82, cost: 21365, conversions: 5, revenue: 10500000 },
+      { keyword: "거실소파", impressions: 12171, clicks: 34, cost: 10000, conversions: 1, revenue: 2214900 }
     ]
   },
   {
-    model: "RK70F49M1ZG", category: "김치냉장고 최주력",
+    model: "코지 리클라이너 소파", category: "소파 주력",
     impressions: 186557, clicks: 435, cost: 97108, conversions: 14, revenue: 36462330,
     keywords: [
-      { keyword: "AI추천", impressions: 132400, clicks: 290, cost: 62800, conversions: 9, revenue: 24200000 },
-      { keyword: "김치냉장고", impressions: 38200, clicks: 96, cost: 24500, conversions: 4, revenue: 9800000 },
-      { keyword: "rk70f49m1zg", impressions: 15957, clicks: 49, cost: 9808, conversions: 1, revenue: 2462330 }
+      { keyword: "리클라이너소파", impressions: 132400, clicks: 290, cost: 62800, conversions: 9, revenue: 24200000 },
+      { keyword: "1인소파", impressions: 38200, clicks: 96, cost: 24500, conversions: 4, revenue: 9800000 },
+      { keyword: "코지 리클라이너", impressions: 15957, clicks: 49, cost: 9808, conversions: 1, revenue: 2462330 }
     ]
   },
   {
-    model: "RQ33DG71J2ET", category: "김치냉장고 최주력",
+    model: "심플 6인용 원목 식탁세트", category: "식탁 주력",
     impressions: 212583, clicks: 886, cost: 137489, conversions: 72, revenue: 121449910,
     keywords: [
-      { keyword: "AI추천", impressions: 142800, clicks: 610, cost: 95400, conversions: 51, revenue: 88200000 },
-      { keyword: "김치냉장고", impressions: 45600, clicks: 190, cost: 30200, conversions: 15, revenue: 25100000 },
-      { keyword: "rq33dg71j2et", impressions: 24183, clicks: 86, cost: 11889, conversions: 6, revenue: 8149910 }
+      { keyword: "식탁세트", impressions: 142800, clicks: 610, cost: 95400, conversions: 51, revenue: 88200000 },
+      { keyword: "원목식탁", impressions: 45600, clicks: 190, cost: 30200, conversions: 15, revenue: 25100000 },
+      { keyword: "6인식탁", impressions: 24183, clicks: 86, cost: 11889, conversions: 6, revenue: 8149910 }
     ]
   },
   {
-    model: "DW80F73Y1FEW", category: "식기세척기 주력",
+    model: "우드 4인 접이식 식탁", category: "식탁 주력",
     impressions: 137175, clicks: 396, cost: 41118, conversions: 14, revenue: 17748360,
     keywords: [
-      { keyword: "식기세척기", impressions: 88400, clicks: 260, cost: 27200, conversions: 9, revenue: 11300000 },
-      { keyword: "삼성식기세척기", impressions: 32100, clicks: 96, cost: 10218, conversions: 4, revenue: 5200000 },
-      { keyword: "dw80f73y1few", impressions: 16675, clicks: 40, cost: 3700, conversions: 1, revenue: 1248360 }
+      { keyword: "접이식식탁", impressions: 88400, clicks: 260, cost: 27200, conversions: 9, revenue: 11300000 },
+      { keyword: "4인식탁", impressions: 32100, clicks: 96, cost: 10218, conversions: 4, revenue: 5200000 },
+      { keyword: "우드 식탁", impressions: 16675, clicks: 40, cost: 3700, conversions: 1, revenue: 1248360 }
     ]
   },
   {
-    model: "NZ63DG403CFK", category: "안마의자 주력",
+    model: "슬림 3단 수납장", category: "수납가구 주력",
     impressions: 20688, clicks: 18, cost: 2090, conversions: 1, revenue: 783870,
     keywords: [
-      { keyword: "안마의자", impressions: 15200, clicks: 12, cost: 1500, conversions: 1, revenue: 783870 },
-      { keyword: "nz63dg403cfk", impressions: 5488, clicks: 6, cost: 590, conversions: 0, revenue: 0 }
+      { keyword: "수납장", impressions: 15200, clicks: 12, cost: 1500, conversions: 1, revenue: 783870 },
+      { keyword: "슬림 수납장", impressions: 5488, clicks: 6, cost: 590, conversions: 0, revenue: 0 }
     ]
   },
   {
-    model: "RQ33DB74D201", category: "김치냉장고 추가",
+    model: "멀티 붙박이형 대형 옷장", category: "수납가구 추가",
     impressions: 113469, clicks: 291, cost: 29920, conversions: 10, revenue: 18605330,
     keywords: [
-      { keyword: "김치냉장고", impressions: 72400, clicks: 198, cost: 20100, conversions: 7, revenue: 12800000 },
-      { keyword: "rq33db74d201", impressions: 41069, clicks: 93, cost: 9820, conversions: 3, revenue: 5805330 }
+      { keyword: "붙박이장", impressions: 72400, clicks: 198, cost: 20100, conversions: 7, revenue: 12800000 },
+      { keyword: "대형 옷장", impressions: 41069, clicks: 93, cost: 9820, conversions: 3, revenue: 5805330 }
     ]
   }
 ];
@@ -381,6 +378,48 @@ async function fetchSaPerformance(groupBy, { dateFrom, dateTo } = {}) {
   return payload;
 }
 
+// 파워링크/쇼핑검색/브랜드검색 키워드별 성과 - sa-sync처럼 미리 저장해둔 게 아니라
+// 호출할 때마다 네이버 API에서 그 기간을 바로 조회해온다 (그래서 시간이 좀 걸릴 수 있다).
+async function fetchSaKeywordPerformance(campaignType, { dateFrom, dateTo } = {}) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_KEYWORD_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({
+        campaign_type: campaignType,
+        date_from: dateFrom,
+        date_to: dateTo
+      })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
 /* ---------------------------------------------------------
    5. DOM 참조
 --------------------------------------------------------- */
@@ -455,6 +494,13 @@ const modelDetailRevenue = document.getElementById("modelDetailRevenue");
 const modelDetailRoas = document.getElementById("modelDetailRoas");
 const modelDetailKeywordBody = document.getElementById("modelDetailKeywordBody");
 
+const viewKeyword = document.getElementById("view-keyword");
+const keywordViewTitle = document.getElementById("keywordViewTitle");
+const keywordViewNotice = document.getElementById("keywordViewNotice");
+const keywordViewSubtitle = document.getElementById("keywordViewSubtitle");
+const keywordSearchInput = document.getElementById("keywordSearchInput");
+const keywordTableBody = document.getElementById("keywordTableBody");
+
 const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
 
 const campaignTypeSection = document.getElementById("campaignTypeSection");
@@ -478,6 +524,7 @@ const state = {
   campaignTypeRows: [],
   modelViewRows: [],
   modelViewOpts: null,
+  keywordViewRows: [],
   breakdownSort: { key: "cost", dir: "desc" },
   overviewRenderToken: 0
 };
@@ -691,6 +738,11 @@ function refreshCurrentPeriodView() {
     renderOverview();
   } else if (state.currentView === "trend") {
     renderTrendView();
+  } else if (state.currentView === "product") {
+    renderModelView();
+  } else {
+    const item = MENU_ITEMS.find((m) => m.id === state.currentView);
+    if (item && item.naverCampaignType) renderKeywordView(item);
   }
 }
 
@@ -1062,6 +1114,77 @@ function renderSaBreakdownPlaceholder() {
 }
 
 /* ---------------------------------------------------------
+   6-1c. 파워링크 / 쇼핑검색 / 브랜드검색 - 키워드별 성과 (SA 전용, 실데이터)
+   ---------------------------------------------------------
+   sa-sync처럼 매일 미리 저장해두는 게 아니라, 이 페이지를 열 때마다 그 기간을
+   네이버 API에서 바로 조회한다 - 캠페인/그룹/키워드를 훑어야 해서 시간이 좀 걸릴 수 있다.
+   전환수/전환매출액은 키워드 단위로는 아직 검증되지 않아 노출수/클릭수/비용/CTR/CPC만 보여준다.
+--------------------------------------------------------- */
+async function renderKeywordView(item) {
+  keywordViewTitle.textContent = `${item.label} 키워드별 성과`;
+  keywordViewSubtitle.textContent = `${item.label} 키워드별 성과 상세`;
+  keywordViewNotice.hidden = true;
+  keywordSearchInput.value = "";
+  keywordTableBody.innerHTML = '<tr><td colspan="8" class="grouped-empty">불러오는 중... (키워드 수에 따라 시간이 걸릴 수 있습니다)</td></tr>';
+
+  const token = ++state.overviewRenderToken;
+  const result = await fetchSaKeywordPerformance(item.naverCampaignType, {
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!result.success) {
+    state.keywordViewRows = [];
+    keywordViewNotice.hidden = false;
+    keywordViewNotice.textContent = result.message;
+    keywordTableBody.innerHTML = `<tr><td colspan="8" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    return;
+  }
+
+  state.keywordViewRows = result.rows;
+  if (result.rows.length === 0) {
+    keywordViewNotice.hidden = false;
+    keywordViewNotice.textContent = "이 기간에 실적이 있는 키워드가 없습니다.";
+  }
+  renderKeywordTable();
+}
+
+function renderKeywordTable() {
+  const q = keywordSearchInput.value.trim().toLowerCase();
+  const filtered = q
+    ? state.keywordViewRows.filter((r) => r.keyword.toLowerCase().includes(q))
+    : state.keywordViewRows;
+
+  if (filtered.length === 0) {
+    keywordTableBody.innerHTML = `<tr><td colspan="8" class="grouped-empty">${
+      state.keywordViewRows.length === 0 ? "데이터가 없습니다." : "검색 결과가 없습니다."
+    }</td></tr>`;
+    return;
+  }
+
+  keywordTableBody.innerHTML = filtered
+    .map(
+      (r) => `
+        <tr>
+          <td>${escapeHtml(r.keyword)}</td>
+          <td>${escapeHtml(r.campaign)}</td>
+          <td>${escapeHtml(r.ad_group)}</td>
+          <td>${formatNumber(r.impressions)}</td>
+          <td>${formatNumber(r.clicks)}</td>
+          <td>${r.ctr.toFixed(2)}%</td>
+          <td>${formatWon(r.cost)}</td>
+          <td>${formatWon(r.cpc)}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+keywordSearchInput.addEventListener("input", renderKeywordTable);
+
+/* ---------------------------------------------------------
    6-2. 상품별(모델별) 성과 뷰 - 도넛/막대+선 차트 + 모델 카드 + 상세 모달
    ---------------------------------------------------------
    SA는 아직 API가 없어 예시 데이터, GFA는 gfa_adv_raw(ADVoost) 실데이터를 쓴다.
@@ -1128,10 +1251,13 @@ async function renderGfaModelView() {
 function renderModelDonutChart(top5) {
   destroyChart("modelDonut");
   const colors = ["#2563eb", "#38bdf8", "#22c55e", "#f59e0b", "#a855f7"];
+  const total = top5.reduce((sum, m) => sum + m.revenue, 0);
+  const percentOf = (revenue) => (total > 0 ? ((revenue / total) * 100).toFixed(1) : "0.0");
+
   state.charts.modelDonut = new Chart(document.getElementById("modelRevenueDonutChart"), {
     type: "doughnut",
     data: {
-      labels: top5.map((m) => m.model),
+      labels: top5.map((m) => `${m.model} (${percentOf(m.revenue)}%)`),
       datasets: [{ data: top5.map((m) => m.revenue), backgroundColor: colors, borderWidth: 0 }]
     },
     options: {
@@ -1411,6 +1537,7 @@ function renderCurrentView() {
   viewOverview.hidden = true;
   viewTrend.hidden = true;
   viewModel.hidden = true;
+  viewKeyword.hidden = true;
   viewGrouped.hidden = true;
   viewUpload.hidden = true;
   viewPlaceholder.hidden = true;
@@ -1428,6 +1555,9 @@ function renderCurrentView() {
   } else if (item.id === "product") {
     viewModel.hidden = false;
     renderModelView();
+  } else if (item.naverCampaignType) {
+    viewKeyword.hidden = false;
+    renderKeywordView(item);
   } else if (item.gfaRawType && isGfa) {
     viewGrouped.hidden = false;
     renderGroupedPerformance(item);
