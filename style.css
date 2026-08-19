@@ -78,30 +78,34 @@ button, input, select {
   margin-bottom: 28px;
 }
 
-.logo-mark {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 16px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent) 0%, #1e40af 100%);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 18px;
-  letter-spacing: 0.5px;
+.brand-mark {
+  display: block;
+  flex-shrink: 0;
+}
+
+.brand-mark-lg {
+  width: 60px;
+  height: 54px;
+  margin: 0 auto 14px;
 }
 
 .login-title {
-  font-size: 18px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: #a41e2f;
+}
+
+.login-title-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--text-main);
+  letter-spacing: 1px;
+  color: var(--text-muted);
 }
 
 .login-subtitle {
-  margin-top: 6px;
+  margin-top: 10px;
   font-size: 13.5px;
   color: var(--text-muted);
 }
@@ -260,18 +264,30 @@ button, input, select {
   color: #fff;
 }
 
-.logo-mark-sm {
-  width: 32px;
-  height: 32px;
-  font-size: 12px;
-  border-radius: 8px;
+.brand-mark-sm {
+  width: 34px;
+  height: 30px;
 }
 
-.sidebar-brand-text {
-  font-size: 13.5px;
-  font-weight: 700;
+.brand-text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1;
+}
+
+.brand-name {
+  font-size: 15px;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
+}
+
+.brand-subtitle {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--sidebar-text);
+  letter-spacing: 0.8px;
 }
 
 .sidebar-menu {
