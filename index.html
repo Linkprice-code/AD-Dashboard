@@ -248,6 +248,20 @@
         <h2 class="view-title" id="modelViewTitle">상품별(모델별) 성과</h2>
         <p class="empty-notice" id="modelViewNotice" hidden></p>
 
+        <!-- SA 전용: 소재ID<->상품명 매핑 업로드 (쇼핑검색 상품별 성과 매칭용) -->
+        <div class="model-list-card" id="productMappingUploadCard" hidden>
+          <h3 class="model-list-title">상품 매핑 파일 업로드</h3>
+          <span class="breakdown-hint">
+            네이버 검색광고 관리시스템의 "광고 다운로드" CSV를 그대로 업로드하면 됩니다
+            (소재ID/기본상품명 포함, 쇼핑검색 상품별 성과 매칭에 쓰입니다).
+          </span>
+          <form class="upload-form" id="productMappingUploadForm">
+            <input type="file" class="upload-file-input" id="productMappingFileInput" accept=".csv" required>
+            <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+          </form>
+          <p class="upload-status" id="productMappingUploadStatus" hidden></p>
+        </div>
+
         <div class="chart-grid">
           <div class="chart-card">
             <h3 class="chart-card-title">Top 5 모델 매출 비중</h3>
