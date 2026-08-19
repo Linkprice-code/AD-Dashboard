@@ -443,6 +443,15 @@ button, input, select {
   flex-shrink: 0;
 }
 
+.pdf-export-btn {
+  flex-shrink: 0;
+}
+
+.pdf-export-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* 컨텐츠 */
 
 .content {
