@@ -13,8 +13,32 @@
 <section id="loginScreen" class="login-screen">
   <div class="login-card">
     <div class="login-logo">
-      <div class="logo-mark">AD</div>
-      <h1 class="login-title">ADS PERFORMANCE DASHBOARD</h1>
+      <svg class="brand-mark brand-mark-lg" viewBox="0 0 100 90" role="img" aria-label="LinkPrice 로고">
+        <defs>
+          <radialGradient id="lpBlueLg" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#eaf1fc"/>
+            <stop offset="55%" stop-color="#5f8ad9"/>
+            <stop offset="100%" stop-color="#1f4a9b"/>
+          </radialGradient>
+          <radialGradient id="lpRedLg" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#fceceb"/>
+            <stop offset="50%" stop-color="#e2545a"/>
+            <stop offset="100%" stop-color="#b81f2d"/>
+          </radialGradient>
+          <radialGradient id="lpYellowLg" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#fffbe8"/>
+            <stop offset="55%" stop-color="#f6cf4b"/>
+            <stop offset="100%" stop-color="#e2a41a"/>
+          </radialGradient>
+        </defs>
+        <line x1="26" y1="60" x2="58" y2="24" stroke="#e08a2e" stroke-width="3"/>
+        <line x1="58" y1="24" x2="84" y2="16" stroke="#eab54a" stroke-width="3"/>
+        <circle cx="26" cy="60" r="24" fill="url(#lpBlueLg)"/>
+        <circle cx="58" cy="24" r="14" fill="url(#lpRedLg)"/>
+        <circle cx="84" cy="16" r="11" fill="url(#lpYellowLg)"/>
+      </svg>
+      <h1 class="login-title">LinkPrice</h1>
+      <p class="login-title-sub">ADS PERFORMANCE DASHBOARD</p>
       <p class="login-subtitle">광고주 전용 성과 대시보드</p>
     </div>
 
@@ -42,8 +66,34 @@
   <!-- 사이드바 -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      <div class="logo-mark logo-mark-sm">AD</div>
-      <span class="sidebar-brand-text">ADS DASHBOARD</span>
+      <svg class="brand-mark brand-mark-sm" viewBox="0 0 100 90" role="img" aria-label="LinkPrice 로고">
+        <defs>
+          <radialGradient id="lpBlueSm" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#eaf1fc"/>
+            <stop offset="55%" stop-color="#5f8ad9"/>
+            <stop offset="100%" stop-color="#1f4a9b"/>
+          </radialGradient>
+          <radialGradient id="lpRedSm" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#fceceb"/>
+            <stop offset="50%" stop-color="#e2545a"/>
+            <stop offset="100%" stop-color="#b81f2d"/>
+          </radialGradient>
+          <radialGradient id="lpYellowSm" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#fffbe8"/>
+            <stop offset="55%" stop-color="#f6cf4b"/>
+            <stop offset="100%" stop-color="#e2a41a"/>
+          </radialGradient>
+        </defs>
+        <line x1="26" y1="60" x2="58" y2="24" stroke="#e08a2e" stroke-width="3"/>
+        <line x1="58" y1="24" x2="84" y2="16" stroke="#eab54a" stroke-width="3"/>
+        <circle cx="26" cy="60" r="24" fill="url(#lpBlueSm)"/>
+        <circle cx="58" cy="24" r="14" fill="url(#lpRedSm)"/>
+        <circle cx="84" cy="16" r="11" fill="url(#lpYellowSm)"/>
+      </svg>
+      <div class="brand-text-group">
+        <span class="brand-name">LinkPrice</span>
+        <span class="brand-subtitle">ADS DASHBOARD</span>
+      </div>
     </div>
 
     <div class="channel-switch" id="channelSwitch" role="tablist">
