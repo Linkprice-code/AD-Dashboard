@@ -447,7 +447,11 @@ button, input, select {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: 18px;
+  padding: 16px 28px 0;
+}
+
+.period-bar[hidden] {
+  display: none;
 }
 
 .period-picker-row {
@@ -730,6 +734,10 @@ button, input, select {
   flex-direction: column;
   gap: 16px;
   margin-bottom: 28px;
+}
+
+.breakdown-section[hidden] {
+  display: none;
 }
 
 .breakdown-card {
@@ -1278,6 +1286,9 @@ button, input, select {
   }
   .content {
     padding: 18px;
+  }
+  .period-bar {
+    padding: 14px 18px 0;
   }
   .topbar {
     padding: 0 16px;
