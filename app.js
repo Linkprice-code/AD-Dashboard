@@ -21,6 +21,8 @@ const GFA_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-upload`;
 const GFA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-performance`;
 const SA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-performance`;
 const SA_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-keyword-performance`;
+const SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-mapping-upload`;
+const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -69,106 +71,9 @@ const SA_CAMPAIGN_TYPE_TO_NAVER = {
   brand: "BRAND_SEARCH"
 };
 
-/* ---------------------------------------------------------
-   4-1. SA 상품별(모델별) 성과 - 예시 데이터
-   ---------------------------------------------------------
-   네이버 SA는 모델/키워드 단위 데이터를 API로 못 받아온다 (추후 수기
-   raw 파일 업로드로 대체 예정). 그 전까지는 화면 구성만 먼저 보여주기
-   위한 예시 데이터다. 실데이터 연동 시 이 배열만 교체하면 된다.
---------------------------------------------------------- */
-const MODEL_BADGE_COLORS = {
-  "아기침대 최주력": "badge-blue",
-  "소파 주력": "badge-green",
-  "식탁 주력": "badge-orange",
-  "수납가구 주력": "badge-red",
-  "수납가구 추가": "badge-teal"
-};
-
-const SA_MODEL_MOCK = [
-  {
-    model: "휴고 플러스 도어형 데이베드 저상형 아기침대", category: "아기침대 최주력",
-    impressions: 530112, clicks: 3333, cost: 714340, conversions: 242, revenue: 645656260,
-    keywords: [
-      { keyword: "아기침대", impressions: 312500, clicks: 1980, cost: 398200, conversions: 158, revenue: 421000000 },
-      { keyword: "저상형아기침대", impressions: 98200, clicks: 620, cost: 165400, conversions: 48, revenue: 128500000 },
-      { keyword: "홈앤힐 아기침대", impressions: 84200, clicks: 510, cost: 112300, conversions: 28, revenue: 71200000 },
-      { keyword: "휴고 데이베드", impressions: 35212, clicks: 223, cost: 38440, conversions: 8, revenue: 24956260 }
-    ]
-  },
-  {
-    model: "아루 트윈 저상형 패밀리 침대 프레임", category: "아기침대 최주력",
-    impressions: 279702, clicks: 1262, cost: 251075, conversions: 73, revenue: 190803660,
-    keywords: [
-      { keyword: "아기침대", impressions: 269671, clicks: 1145, cost: 116732, conversions: 59, revenue: 152567220 },
-      { keyword: "패밀리침대", impressions: 1798, clicks: 42, cost: 93951, conversions: 2, revenue: 5354820 },
-      { keyword: "저상형침대", impressions: 7452, clicks: 22, cost: 32879, conversions: 4, revenue: 10709640 },
-      { keyword: "아루 트윈", impressions: 118, clicks: 29, cost: 2871, conversions: 6, revenue: 16817160 },
-      { keyword: "슈퍼싱글 침대", impressions: 12, clicks: 2, cost: 1353, conversions: 0, revenue: 0 }
-    ]
-  },
-  {
-    model: "리버시 양면 하이가드 저상형 패밀리침대", category: "아기침대 최주력",
-    impressions: 144120, clicks: 273, cost: 30118, conversions: 2, revenue: 6107520,
-    keywords: [
-      { keyword: "하이가드침대", impressions: 98400, clicks: 165, cost: 18200, conversions: 1, revenue: 3200000 },
-      { keyword: "패밀리침대", impressions: 32100, clicks: 74, cost: 8100, conversions: 1, revenue: 2907520 },
-      { keyword: "리버시 양면", impressions: 13620, clicks: 34, cost: 3818, conversions: 0, revenue: 0 }
-    ]
-  },
-  {
-    model: "모던 3인용 패브릭 소파", category: "소파 주력",
-    impressions: 266371, clicks: 924, cost: 271865, conversions: 52, revenue: 134014900,
-    keywords: [
-      { keyword: "3인용소파", impressions: 180200, clicks: 610, cost: 178400, conversions: 34, revenue: 89200000 },
-      { keyword: "패브릭소파", impressions: 52400, clicks: 198, cost: 62100, conversions: 12, revenue: 32100000 },
-      { keyword: "홈앤힐 소파", impressions: 21600, clicks: 82, cost: 21365, conversions: 5, revenue: 10500000 },
-      { keyword: "거실소파", impressions: 12171, clicks: 34, cost: 10000, conversions: 1, revenue: 2214900 }
-    ]
-  },
-  {
-    model: "코지 리클라이너 소파", category: "소파 주력",
-    impressions: 186557, clicks: 435, cost: 97108, conversions: 14, revenue: 36462330,
-    keywords: [
-      { keyword: "리클라이너소파", impressions: 132400, clicks: 290, cost: 62800, conversions: 9, revenue: 24200000 },
-      { keyword: "1인소파", impressions: 38200, clicks: 96, cost: 24500, conversions: 4, revenue: 9800000 },
-      { keyword: "코지 리클라이너", impressions: 15957, clicks: 49, cost: 9808, conversions: 1, revenue: 2462330 }
-    ]
-  },
-  {
-    model: "심플 6인용 원목 식탁세트", category: "식탁 주력",
-    impressions: 212583, clicks: 886, cost: 137489, conversions: 72, revenue: 121449910,
-    keywords: [
-      { keyword: "식탁세트", impressions: 142800, clicks: 610, cost: 95400, conversions: 51, revenue: 88200000 },
-      { keyword: "원목식탁", impressions: 45600, clicks: 190, cost: 30200, conversions: 15, revenue: 25100000 },
-      { keyword: "6인식탁", impressions: 24183, clicks: 86, cost: 11889, conversions: 6, revenue: 8149910 }
-    ]
-  },
-  {
-    model: "우드 4인 접이식 식탁", category: "식탁 주력",
-    impressions: 137175, clicks: 396, cost: 41118, conversions: 14, revenue: 17748360,
-    keywords: [
-      { keyword: "접이식식탁", impressions: 88400, clicks: 260, cost: 27200, conversions: 9, revenue: 11300000 },
-      { keyword: "4인식탁", impressions: 32100, clicks: 96, cost: 10218, conversions: 4, revenue: 5200000 },
-      { keyword: "우드 식탁", impressions: 16675, clicks: 40, cost: 3700, conversions: 1, revenue: 1248360 }
-    ]
-  },
-  {
-    model: "슬림 3단 수납장", category: "수납가구 주력",
-    impressions: 20688, clicks: 18, cost: 2090, conversions: 1, revenue: 783870,
-    keywords: [
-      { keyword: "수납장", impressions: 15200, clicks: 12, cost: 1500, conversions: 1, revenue: 783870 },
-      { keyword: "슬림 수납장", impressions: 5488, clicks: 6, cost: 590, conversions: 0, revenue: 0 }
-    ]
-  },
-  {
-    model: "멀티 붙박이형 대형 옷장", category: "수납가구 추가",
-    impressions: 113469, clicks: 291, cost: 29920, conversions: 10, revenue: 18605330,
-    keywords: [
-      { keyword: "붙박이장", impressions: 72400, clicks: 198, cost: 20100, conversions: 7, revenue: 12800000 },
-      { keyword: "대형 옷장", impressions: 41069, clicks: 93, cost: 9820, conversions: 3, revenue: 5805330 }
-    ]
-  }
-];
+// 상품 카테고리별 뱃지 색상 (현재는 카테고리를 넘겨주는 데이터가 없어 항상 기본색으로
+// 표시되지만, 값이 들어오면 자동으로 매칭되도록 남겨둔다).
+const MODEL_BADGE_COLORS = {};
 
 /* ---------------------------------------------------------
    4. 인증
@@ -420,6 +325,78 @@ async function fetchSaKeywordPerformance(campaignType, { dateFrom, dateTo } = {}
   return payload;
 }
 
+async function uploadSaProductMapping(rows) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ rows })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "업로드에 실패했습니다." };
+  }
+
+  return payload;
+}
+
+async function fetchSaProductPerformance({ dateFrom, dateTo } = {}) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_PRODUCT_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ date_from: dateFrom, date_to: dateTo })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
 /* ---------------------------------------------------------
    5. DOM 참조
 --------------------------------------------------------- */
@@ -475,6 +452,10 @@ const compareResetBtn = document.getElementById("compareResetBtn");
 const viewModel = document.getElementById("view-model");
 const modelViewTitle = document.getElementById("modelViewTitle");
 const modelViewNotice = document.getElementById("modelViewNotice");
+const productMappingUploadCard = document.getElementById("productMappingUploadCard");
+const productMappingUploadForm = document.getElementById("productMappingUploadForm");
+const productMappingFileInput = document.getElementById("productMappingFileInput");
+const productMappingUploadStatus = document.getElementById("productMappingUploadStatus");
 const modelListCard = document.getElementById("modelListCard");
 const modelCardGrid = document.getElementById("modelCardGrid");
 const modelSearchInput = document.getElementById("modelSearchInput");
@@ -1187,30 +1168,54 @@ keywordSearchInput.addEventListener("input", renderKeywordTable);
 /* ---------------------------------------------------------
    6-2. 상품별(모델별) 성과 뷰 - 도넛/막대+선 차트 + 모델 카드 + 상세 모달
    ---------------------------------------------------------
-   SA는 아직 API가 없어 예시 데이터, GFA는 gfa_adv_raw(ADVoost) 실데이터를 쓴다.
+   SA는 쇼핑검색 상품(소재) 실데이터(sa_product_daily, 업로드한 매핑 기준),
+   GFA는 gfa_adv_raw(ADVoost) 실데이터를 쓴다.
 --------------------------------------------------------- */
 async function renderModelView() {
   modelViewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 상품별(모델별) 성과`;
+  productMappingUploadCard.hidden = state.currentChannel !== "SA";
   if (state.currentChannel === "GFA") {
     await renderGfaModelView();
   } else {
-    renderSaModelView();
+    await renderSaModelView();
   }
 }
 
-function renderSaModelView() {
+async function renderSaModelView() {
   modelListCard.hidden = false;
-  modelViewNotice.hidden = false;
-  modelViewNotice.textContent =
-    "예시 데이터로 화면 구성만 먼저 보여드립니다. 실제 상품별 raw 파일 업로드 기능 연동 후 실데이터로 교체됩니다.";
+  modelViewNotice.hidden = true;
 
-  const models = SA_MODEL_MOCK.map((m) => ({ ...m, ...withDerivedMetrics(m) }));
+  const token = ++state.overviewRenderToken;
+  const result = await fetchSaProductPerformance({
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!result.success) {
+    modelViewNotice.hidden = false;
+    modelViewNotice.textContent = result.message;
+    destroyChart("modelDonut");
+    destroyChart("modelCvrRoas");
+    modelSearchInput.value = "";
+    renderModelCardGrid([], { showBadge: false, onClick: openModelDetailModal });
+    return;
+  }
+
+  if (result.rows.length === 0) {
+    modelViewNotice.hidden = false;
+    modelViewNotice.textContent =
+      "표시할 상품별 데이터가 없습니다. 위에서 상품 매핑 파일을 먼저 업로드해주세요 (업로드 후 다음 자동 동기화부터 반영됩니다 - 쇼핑검색 캠페인만 상품 단위 매칭이 가능합니다).";
+  }
+
+  const models = result.rows.map((r) => ({ model: r.name, category: null, ...r }));
   const top5 = [...models].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
 
   renderModelDonutChart(top5);
   renderModelCvrRoasChart(top5);
   modelSearchInput.value = "";
-  renderModelCardGrid(models, { showBadge: true, onClick: openModelDetailModal });
+  renderModelCardGrid(models, { showBadge: false, onClick: openModelDetailModal });
 }
 
 // ADVoost 쇼핑은 검색어(키워드) 단위 데이터가 원래 없어서, 카드 목록/클릭 상세 없이
@@ -1830,6 +1835,88 @@ document.querySelectorAll("#view-upload .upload-template-link").forEach((link) =
   const template = GFA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template];
   if (template) {
     link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(template);
+  }
+});
+
+/* ---------------------------------------------------------
+   7-3. SA 상품 매핑(소재ID <-> 상품명) 업로드
+   ---------------------------------------------------------
+   네이버 검색광고 관리시스템의 "광고 다운로드" CSV를 그대로 업로드한다. 맨 위에
+   안내 문구가 한 줄 더 있을 수 있어서, "CUST_ID"로 시작하는 실제 헤더 행을 찾아서 쓴다.
+--------------------------------------------------------- */
+function parseSaProductMappingCsv(text) {
+  const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
+  const headerIdx = lines.findIndex((line) => splitCsvLine(line)[0]?.trim() === "CUST_ID");
+  if (headerIdx === -1) {
+    throw new Error('CUST_ID 헤더를 찾을 수 없습니다. 네이버 "광고 다운로드" CSV 형식이 맞는지 확인해주세요.');
+  }
+
+  const header = splitCsvLine(lines[headerIdx]).map((h) => h.trim());
+  const col = (name) => header.indexOf(name);
+
+  const idxAdId = col("소재 ID");
+  const idxProductName = col("기본상품명");
+  const idxCategory = col("카테고리");
+  const idxShopProductId = col("쇼핑몰 상품ID");
+  const idxCampaign = col("캠페인 이름");
+  const idxAdGroup = col("광고그룹 이름");
+
+  if (idxAdId === -1 || idxProductName === -1) {
+    throw new Error('CSV에서 "소재 ID" 또는 "기본상품명" 컬럼을 찾지 못했습니다.');
+  }
+
+  const seen = new Map();
+  for (const line of lines.slice(headerIdx + 1)) {
+    const cells = splitCsvLine(line);
+    const adId = (cells[idxAdId] ?? "").trim();
+    const productName = (cells[idxProductName] ?? "").trim();
+    if (!adId || !productName || productName === "#N/A") continue;
+
+    seen.set(adId, {
+      naver_ad_id: adId,
+      product_name: productName,
+      category: idxCategory !== -1 ? (cells[idxCategory] ?? "").trim() : "",
+      shop_product_id: idxShopProductId !== -1 ? (cells[idxShopProductId] ?? "").trim() : "",
+      campaign: idxCampaign !== -1 ? (cells[idxCampaign] ?? "").trim() : "",
+      ad_group: idxAdGroup !== -1 ? (cells[idxAdGroup] ?? "").trim() : ""
+    });
+  }
+
+  return [...seen.values()];
+}
+
+productMappingUploadForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const file = productMappingFileInput.files[0];
+  if (!file) return;
+
+  productMappingUploadStatus.hidden = true;
+  const submitBtn = productMappingUploadForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = "업로드 중...";
+
+  try {
+    const text = await file.text();
+    const rows = parseSaProductMappingCsv(text);
+
+    if (rows.length === 0) {
+      throw new Error("업로드할 데이터가 없습니다.");
+    }
+
+    const result = await uploadSaProductMapping(rows);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    showUploadStatus(productMappingUploadStatus, `업로드 완료: 상품 ${result.inserted}개 매핑 저장`, "success");
+    productMappingUploadForm.reset();
+  } catch (err) {
+    showUploadStatus(productMappingUploadStatus, err.message || "업로드 중 오류가 발생했습니다.", "error");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
   }
 });
 
