@@ -39,7 +39,7 @@ const MENU_ITEMS = [
   { id: "powerlink", label: "파워링크", channels: ["SA"], naverCampaignType: "WEB_SITE" },
   { id: "shopping", label: "쇼핑검색", channels: ["SA"], naverCampaignType: "SHOPPING" },
   { id: "brand", label: "브랜드검색", channels: ["SA"], naverCampaignType: "BRAND_SEARCH" },
-  { id: "creative", label: "소재별 성과", channels: ["GFA"] },
+  { id: "creative", label: "소재별 성과", channels: ["GFA"], gfaRawType: "creative" },
   { id: "upload", label: "데이터 업로드", channels: ["GFA"] }
 ];
 
@@ -47,8 +47,12 @@ const MENU_ITEMS = [
 const GFA_RAW_TYPE_NAME_LABEL = {
   campaign: "캠페인",
   adgroup: "광고그룹",
-  adv: "상품"
+  adv: "상품",
+  creative: "소재"
 };
+
+// GFA 캠페인 유형별 성과 표에 고정으로 보여줄 유형 순서 (네이버 GFA "캠페인 목적" 값)
+const GFA_CAMPAIGN_TYPE_ORDER = ["웹사이트 전환", "인지도 및 트래픽", "쇼핑 프로모션", "카탈로그 판매", "동영상 조회"];
 
 /* ---------------------------------------------------------
    3. 채널(SA / GFA) 라벨 / SA Mock 데이터
@@ -417,6 +421,7 @@ const overviewTitle = document.getElementById("overviewTitle");
 const advertiserNameEl = document.getElementById("advertiserName");
 const periodLabel = document.getElementById("periodLabel");
 const logoutBtn = document.getElementById("logoutBtn");
+const pdfExportBtn = document.getElementById("pdfExportBtn");
 
 const kpiGrid = document.getElementById("kpiGrid");
 const viewOverview = document.getElementById("view-overview");
@@ -487,6 +492,9 @@ const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
 const campaignTypeSection = document.getElementById("campaignTypeSection");
 const campaignTypeFilter = document.getElementById("campaignTypeFilter");
 const campaignTypeTableBody = document.getElementById("campaignTypeTableBody");
+
+const gfaCampaignTypeSection = document.getElementById("gfaCampaignTypeSection");
+const gfaCampaignTypeTableBody = document.getElementById("gfaCampaignTypeTableBody");
 
 const breakdownTitle = document.getElementById("breakdownTitle");
 const breakdownFilter = document.getElementById("breakdownFilter");
@@ -695,6 +703,71 @@ logoutBtn.addEventListener("click", () => {
   passwordInput.focus();
 });
 
+/* ---------------------------------------------------------
+   현재 화면(지금 열려있는 뷰) 그대로 PDF로 저장
+--------------------------------------------------------- */
+pdfExportBtn.addEventListener("click", exportCurrentViewToPdf);
+
+async function exportCurrentViewToPdf() {
+  const target = document.querySelector("#content .view:not([hidden])");
+  if (!target) return;
+
+  const originalLabel = pdfExportBtn.textContent;
+  pdfExportBtn.disabled = true;
+  pdfExportBtn.textContent = "생성 중...";
+
+  try {
+    const canvas = await html2canvas(target, {
+      scale: 2,
+      backgroundColor: "#f3f5f9",
+      useCORS: true,
+    });
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("p", "pt", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 28;
+
+    const viewLabel = (MENU_ITEMS.find((m) => m.id === state.currentView) || {}).label || "";
+
+    // 헤더(광고주명 / 메뉴 / 분석기간)는 캡처 이미지가 아니라 텍스트로 직접 그려서 흐려지지 않게 한다.
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(14);
+    pdf.text(advertiserNameEl.textContent || "", margin, margin + 12);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.setTextColor(90, 98, 117);
+    pdf.text(`${viewLabel} · ${periodLabel.textContent || ""}`, margin, margin + 28);
+    pdf.setTextColor(0, 0, 0);
+
+    const imgWidth = pageWidth - margin * 2;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL("image/png");
+
+    let position = margin + 44;
+    pdf.addImage(imgData, "PNG", margin, position, imgWidth, imgHeight);
+
+    let heightLeft = imgHeight - (pageHeight - position);
+    while (heightLeft > 0) {
+      pdf.addPage();
+      position = -(imgHeight - heightLeft);
+      pdf.addImage(imgData, "PNG", margin, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    const advertiserSlug = (advertiserNameEl.textContent || "advertiser").replace(/\s+/g, "_");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    pdf.save(`${advertiserSlug}_${viewLabel}_${dateStr}.pdf`);
+  } catch (e) {
+    console.error("[pdf export]", e);
+    alert("PDF 생성 중 오류가 발생했습니다.");
+  } finally {
+    pdfExportBtn.disabled = false;
+    pdfExportBtn.textContent = originalLabel;
+  }
+}
+
 function showDashboard(advertiser) {
   loginScreen.hidden = true;
   dashboardScreen.hidden = false;
@@ -849,6 +922,8 @@ async function renderOverview() {
 
   // 캠페인 유형별(파워링크/쇼핑검색/브랜드검색)은 SA 전용 섹션이라 GFA에서는 숨긴다.
   campaignTypeSection.hidden = state.currentChannel !== "SA";
+  // GFA 캠페인 유형별(웹사이트 전환/인지도 및 트래픽/쇼핑 프로모션/카탈로그 판매/동영상 조회)은 그 반대.
+  gfaCampaignTypeSection.hidden = state.currentChannel !== "GFA";
 
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
@@ -969,9 +1044,10 @@ async function renderGfaOverview() {
   const { from, to } = state.analysisPeriod;
   const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
 
-  const [currentResult, comparisonResult] = await Promise.all([
+  const [currentResult, comparisonResult, campaignTypeResult] = await Promise.all([
     fetchGfaPerformance("campaign", { dateFrom: from, dateTo: to }),
-    fetchGfaPerformance("campaign", { dateFrom: compareFrom, dateTo: compareTo })
+    fetchGfaPerformance("campaign", { dateFrom: compareFrom, dateTo: compareTo }),
+    fetchGfaPerformance("campaign_type", { dateFrom: from, dateTo: to })
   ]);
 
   if (token !== state.overviewRenderToken) return; // 그 사이 다른 요청으로 대체됨
@@ -980,6 +1056,7 @@ async function renderGfaOverview() {
     overviewEmptyNotice.hidden = false;
     overviewEmptyNotice.textContent = currentResult.message;
     renderKpiCards(withDerivedMetrics({ impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }), null);
+    renderGfaCampaignTypeRows([]);
     state.breakdownRows = [];
     breakdownTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
     return;
@@ -1000,7 +1077,55 @@ async function renderGfaOverview() {
     comparisonTotals ? withDerivedMetrics(comparisonTotals) : null
   );
 
+  renderGfaCampaignTypeRows(campaignTypeResult.success ? campaignTypeResult.rows : []);
+
   await loadBreakdownData();
+}
+
+/* ---------------------------------------------------------
+   6-2a. GFA 캠페인 유형별 성과 (웹사이트 전환 / 인지도 및 트래픽 / 쇼핑 프로모션 / 카탈로그 판매 / 동영상 조회)
+   ---------------------------------------------------------
+   캠페인 Raw 업로드 시 "캠페인 목적" 컬럼에서 뽑아 저장해둔 campaign_type 기준으로,
+   고정된 유형 5개는 항상 순서대로 보여주고 그 외 값(또는 비어있는 값)은 "기타"로 묶는다.
+--------------------------------------------------------- */
+function renderGfaCampaignTypeRows(rows) {
+  const byName = new Map(rows.map((r) => [r.name, r]));
+
+  const etcAcc = { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 };
+  rows.forEach((r) => {
+    if (!GFA_CAMPAIGN_TYPE_ORDER.includes(r.name)) {
+      etcAcc.impressions += r.impressions;
+      etcAcc.clicks += r.clicks;
+      etcAcc.cost += r.cost;
+      etcAcc.conversions += r.conversions;
+      etcAcc.revenue += r.revenue;
+    }
+  });
+  const hasEtc = etcAcc.impressions > 0 || etcAcc.clicks > 0 || etcAcc.cost > 0 || etcAcc.conversions > 0 || etcAcc.revenue > 0;
+
+  const zero = withDerivedMetrics({ impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 });
+  const displayRows = GFA_CAMPAIGN_TYPE_ORDER.map((type) => ({ label: type, data: byName.get(type) || zero }));
+  if (hasEtc) {
+    displayRows.push({ label: "기타", data: withDerivedMetrics(etcAcc) });
+  }
+
+  gfaCampaignTypeTableBody.innerHTML = displayRows
+    .map(
+      ({ label, data }) => `
+    <tr>
+      <td>${escapeHtml(label)}</td>
+      <td>${formatWon(data.cost)}</td>
+      <td>${formatWon(data.revenue)}</td>
+      <td>${data.roas}%</td>
+      <td>${formatNumber(data.clicks)}</td>
+      <td>${data.ctr.toFixed(2)}%</td>
+      <td>${formatNumber(data.conversions)}</td>
+      <td>${data.cvr.toFixed(2)}%</td>
+      <td>${formatWon(data.cpa)}</td>
+    </tr>
+  `
+    )
+    .join("");
 }
 
 /* ---------------------------------------------------------
@@ -1643,15 +1768,24 @@ function escapeHtml(str) {
 const GFA_RAW_TYPE_COLUMNS = {
   campaign: ["date", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
   adgroup: ["date", "campaign", "ad_group", "impressions", "clicks", "cost", "conversions", "revenue"],
-  adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"]
+  adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"],
+  creative: ["date", "creative", "impressions", "clicks", "cost", "conversions", "revenue"]
+};
+
+// requiredColumns와 달리, CSV에 없어도 업로드 자체는 막지 않는 추가 컬럼
+// (campaign_type은 캠페인 Raw에만 있고, 예전에 만든 템플릿이나 구버전 파일에는 없을 수 있다).
+const GFA_OPTIONAL_COLUMNS = {
+  campaign: ["campaign_type"]
 };
 
 // 내부 필드명 -> 실제 CSV에 올 수 있는 헤더 이름 후보 (전부 소문자/trim 비교)
 const GFA_HEADER_ALIASES = {
   date: ["date", "기간", "날짜", "일자"],
   campaign: ["campaign", "캠페인 이름", "캠페인명"],
+  campaign_type: ["campaign_type", "캠페인 목적"],
   ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명"],
   product: ["product", "상품명", "상품 이름"],
+  creative: ["creative", "소재 이름", "소재명", "소재"],
   impressions: ["impressions", "노출수"],
   clicks: ["clicks", "클릭수"],
   cost: ["cost", "총비용", "비용"],
@@ -1663,14 +1797,17 @@ const GFA_HEADER_ALIASES = {
 
 const GFA_RAW_TYPE_TEMPLATE_CSV = {
   campaign:
-    "date,campaign,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,여름신상프로모션,15200,320,540000,18,3200000\n",
+    "date,campaign,campaign_type,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,여름신상프로모션,웹사이트 전환,15200,320,540000,18,3200000\n",
   adgroup:
     "date,campaign,ad_group,impressions,clicks,cost,conversions,revenue\n" +
     "2026-08-01,여름신상프로모션,배너그룹A,15200,320,540000,18,3200000\n",
   adv:
     "date,product,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,ADVoost,15200,320,540000,18,3200000\n"
+    "2026-08-01,ADVoost,15200,320,540000,18,3200000\n",
+  creative:
+    "date,creative,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,여름신상_소재A,15200,320,540000,18,3200000\n"
 };
 
 const GFA_MAX_UPLOAD_ROWS = 20000;
@@ -1733,7 +1870,7 @@ function findColumnIndex(header, aliases) {
   return -1;
 }
 
-function parseGfaCsv(text, requiredColumns) {
+function parseGfaCsv(text, requiredColumns, optionalColumns = []) {
   const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
   if (lines.length < 2) {
     throw new Error("업로드할 데이터가 없습니다 (헤더 다음 줄부터 데이터가 있어야 합니다).");
@@ -1756,11 +1893,21 @@ function parseGfaCsv(text, requiredColumns) {
     throw new Error(`CSV에서 다음 컬럼을 찾지 못했습니다: ${missing.join(", ")}`);
   }
 
+  // optionalColumns는 없어도 업로드를 막지 않는다 - 있으면 같이 담고, 없으면 그냥 건너뛴다.
+  optionalColumns.forEach((field) => {
+    const idx = findColumnIndex(header, GFA_HEADER_ALIASES[field] || [field]);
+    if (idx !== -1) columnIndex[field] = idx;
+  });
+
+  const allFields = [...requiredColumns, ...optionalColumns];
+
   return lines.slice(1).map((line) => {
     const cells = splitCsvLine(line);
     const row = {};
 
-    requiredColumns.forEach((field) => {
+    allFields.forEach((field) => {
+      if (!(field in columnIndex)) return; // optional인데 이 CSV엔 없는 컬럼
+
       const cellValue = (cells[columnIndex[field]] ?? "").trim();
       if (field === "date") {
         row.date = normalizeGfaDate(cellValue);
@@ -1795,7 +1942,7 @@ document.querySelectorAll("#view-upload .upload-form").forEach((form) => {
 
     try {
       const text = await file.text();
-      const rows = parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType]);
+      const rows = parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
 
       if (rows.length === 0) {
         throw new Error("업로드할 데이터가 없습니다.");
