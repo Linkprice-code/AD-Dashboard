@@ -279,6 +279,33 @@
       <div class="view" id="view-keyword" hidden>
         <h2 class="view-title" id="keywordViewTitle">파워링크 키워드별 성과</h2>
         <p class="empty-notice" id="keywordViewNotice" hidden></p>
+
+        <!-- 브랜드검색 전용: 계약비용 (네이버 API로 못 가져와서 직접 입력) -->
+        <div class="model-list-card" id="brandSearchContractCard" hidden>
+          <h3 class="model-list-title">계약비용</h3>
+          <span class="breakdown-hint">브랜드검색은 계약 기반 상품이라 네이버 API로 금액을 가져올 수 없어 직접 입력합니다.</span>
+          <form class="upload-form" id="brandSearchContractForm">
+            <input type="date" id="brandSearchContractFrom" class="contract-input" required>
+            <span class="contract-tilde">~</span>
+            <input type="date" id="brandSearchContractTo" class="contract-input" required>
+            <input type="number" id="brandSearchContractCost" class="contract-input contract-cost-input" placeholder="계약금액(원)" min="0" step="1" required>
+            <button type="submit" class="btn-primary upload-submit-btn">추가</button>
+          </form>
+          <p class="upload-status" id="brandSearchContractStatus" hidden></p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>계약기간</th>
+                  <th>계약금액</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="brandSearchContractTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="model-list-card">
           <div class="model-list-header">
             <h3 class="model-list-title" id="keywordViewSubtitle">키워드별 성과 상세</h3>
