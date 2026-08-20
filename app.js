@@ -23,6 +23,7 @@ const SA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-performa
 const SA_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-keyword-performance`;
 const SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-mapping-upload`;
 const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
+const SA_BRAND_SEARCH_CONTRACT_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-brand-search-contract`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -402,6 +403,57 @@ async function fetchSaProductPerformance({ dateFrom, dateTo } = {}) {
 }
 
 /* ---------------------------------------------------------
+   4-2. 브랜드검색 계약비용 (네이버 API로 못 가져와서 직접 입력/저장)
+--------------------------------------------------------- */
+async function callBrandSearchContract(body) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_BRAND_SEARCH_CONTRACT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "요청 처리에 실패했습니다." };
+  }
+
+  return payload;
+}
+
+function fetchBrandSearchContracts() {
+  return callBrandSearchContract({ action: "list" });
+}
+
+function saveBrandSearchContract(dateFrom, dateTo, contractCost) {
+  return callBrandSearchContract({ action: "save", date_from: dateFrom, date_to: dateTo, contract_cost: contractCost });
+}
+
+function deleteBrandSearchContract(id) {
+  return callBrandSearchContract({ action: "delete", id });
+}
+
+/* ---------------------------------------------------------
    5. DOM 참조
 --------------------------------------------------------- */
 const loginScreen = document.getElementById("loginScreen");
@@ -487,6 +539,14 @@ const keywordViewSubtitle = document.getElementById("keywordViewSubtitle");
 const keywordSearchInput = document.getElementById("keywordSearchInput");
 const keywordTableBody = document.getElementById("keywordTableBody");
 
+const brandSearchContractCard = document.getElementById("brandSearchContractCard");
+const brandSearchContractForm = document.getElementById("brandSearchContractForm");
+const brandSearchContractFrom = document.getElementById("brandSearchContractFrom");
+const brandSearchContractTo = document.getElementById("brandSearchContractTo");
+const brandSearchContractCost = document.getElementById("brandSearchContractCost");
+const brandSearchContractStatus = document.getElementById("brandSearchContractStatus");
+const brandSearchContractTableBody = document.getElementById("brandSearchContractTableBody");
+
 const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
 
 const campaignTypeSection = document.getElementById("campaignTypeSection");
@@ -514,6 +574,7 @@ const state = {
   modelViewRows: [],
   modelViewOpts: null,
   keywordViewRows: [],
+  brandSearchContractRows: [],
   breakdownSort: { key: "cost", dir: "desc" },
   overviewRenderToken: 0
 };
@@ -1233,6 +1294,11 @@ async function renderKeywordView(item) {
   keywordSearchInput.value = "";
   keywordTableBody.innerHTML = '<tr><td colspan="8" class="grouped-empty">불러오는 중... (키워드 수에 따라 시간이 걸릴 수 있습니다)</td></tr>';
 
+  brandSearchContractCard.hidden = item.naverCampaignType !== "BRAND_SEARCH";
+  if (!brandSearchContractCard.hidden) {
+    loadBrandSearchContracts();
+  }
+
   const token = ++state.overviewRenderToken;
   const result = await fetchSaKeywordPerformance(item.naverCampaignType, {
     dateFrom: state.analysisPeriod.from,
@@ -1289,6 +1355,95 @@ function renderKeywordTable() {
 }
 
 keywordSearchInput.addEventListener("input", renderKeywordTable);
+
+/* ---------------------------------------------------------
+   6-1c. 브랜드검색 계약비용 (네이버 API로 못 가져와서 직접 입력/저장)
+--------------------------------------------------------- */
+async function loadBrandSearchContracts() {
+  brandSearchContractTableBody.innerHTML = '<tr><td colspan="3" class="grouped-empty">불러오는 중...</td></tr>';
+  const result = await fetchBrandSearchContracts();
+  if (!result.success) {
+    brandSearchContractTableBody.innerHTML = `<tr><td colspan="3" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    return;
+  }
+  state.brandSearchContractRows = result.rows;
+  renderBrandSearchContractTable();
+}
+
+function renderBrandSearchContractTable() {
+  const rows = state.brandSearchContractRows;
+  if (rows.length === 0) {
+    brandSearchContractTableBody.innerHTML = '<tr><td colspan="3" class="grouped-empty">등록된 계약이 없습니다.</td></tr>';
+    return;
+  }
+
+  const total = rows.reduce((sum, r) => sum + Number(r.contract_cost), 0);
+
+  brandSearchContractTableBody.innerHTML =
+    rows
+      .map(
+        (r) => `
+        <tr>
+          <td>${r.date_from} ~ ${r.date_to}</td>
+          <td>${formatWon(r.contract_cost)}</td>
+          <td><button type="button" class="contract-delete-btn" data-id="${r.id}">삭제</button></td>
+        </tr>
+      `
+      )
+      .join("") +
+    `<tr><td><b>합계</b></td><td><b>${formatWon(total)}</b></td><td></td></tr>`;
+}
+
+brandSearchContractForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const dateFrom = brandSearchContractFrom.value;
+  const dateTo = brandSearchContractTo.value;
+  const cost = Number(brandSearchContractCost.value);
+
+  brandSearchContractStatus.hidden = true;
+  const submitBtn = brandSearchContractForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = "저장 중...";
+
+  try {
+    if (!dateFrom || !dateTo || dateFrom > dateTo) {
+      throw new Error("계약기간을 올바르게 입력해주세요.");
+    }
+    if (!Number.isFinite(cost) || cost < 0) {
+      throw new Error("계약금액을 올바르게 입력해주세요.");
+    }
+
+    const result = await saveBrandSearchContract(dateFrom, dateTo, cost);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    showUploadStatus(brandSearchContractStatus, "계약비용이 저장되었습니다.", "success");
+    brandSearchContractForm.reset();
+    await loadBrandSearchContracts();
+  } catch (err) {
+    showUploadStatus(brandSearchContractStatus, err.message || "저장 중 오류가 발생했습니다.", "error");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+});
+
+brandSearchContractTableBody.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".contract-delete-btn");
+  if (!btn) return;
+
+  btn.disabled = true;
+  const result = await deleteBrandSearchContract(Number(btn.dataset.id));
+  if (!result.success) {
+    btn.disabled = false;
+    showUploadStatus(brandSearchContractStatus, result.message || "삭제 중 오류가 발생했습니다.", "error");
+    return;
+  }
+  await loadBrandSearchContracts();
+});
 
 /* ---------------------------------------------------------
    6-2. 상품별(모델별) 성과 뷰 - 도넛/막대+선 차트 + 모델 카드 + 상세 모달
