@@ -88,7 +88,10 @@ const MODEL_BADGE_COLORS = {};
    정보 + 서명된 세션 토큰만 보관하며, password / password_hash는 어떤
    경우에도 다루지 않는다.
 --------------------------------------------------------- */
-async function authenticateAdvertiser(password) {
+// advertiserId를 넘기지 않고 호출했을 때, 같은 고객번호로 스토어가 여러 개 매칭되면
+// 세션 토큰 없이 { requiresSelection: true, stores: [...] }만 돌아온다 - 이때는 사용자가
+// 스토어를 고른 뒤 advertiserId를 넣어서 다시 한 번 호출해야 실제 로그인이 완료된다.
+async function authenticateAdvertiser(password, advertiserId) {
   let res;
   try {
     res = await fetch(ADVERTISER_LOGIN_ENDPOINT, {
@@ -98,7 +101,7 @@ async function authenticateAdvertiser(password) {
         "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
         "apikey": SUPABASE_CONFIG.anonKey
       },
-      body: JSON.stringify({ password })
+      body: JSON.stringify(advertiserId ? { password, advertiser_id: advertiserId } : { password })
     });
   } catch {
     return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
@@ -113,6 +116,10 @@ async function authenticateAdvertiser(password) {
 
   if (!res.ok || !payload.success) {
     return { success: false, message: payload.message || "고객번호가 올바르지 않습니다." };
+  }
+
+  if (payload.requires_selection) {
+    return { success: true, requiresSelection: true, stores: payload.stores };
   }
 
   saveSession(payload.advertiser, payload.session_token);
@@ -463,6 +470,11 @@ const passwordInput = document.getElementById("passwordInput");
 const loginError = document.getElementById("loginError");
 const loginSubmitBtn = loginForm.querySelector("button[type=submit]");
 
+const storePickerScreen = document.getElementById("storePickerScreen");
+const storePickerList = document.getElementById("storePickerList");
+const storePickerError = document.getElementById("storePickerError");
+const storePickerBackBtn = document.getElementById("storePickerBackBtn");
+
 const sidebar = document.getElementById("sidebar");
 const sidebarMenuList = document.getElementById("sidebarMenuList");
 const sidebarBackdrop = document.getElementById("sidebarBackdrop");
@@ -725,7 +737,15 @@ function setPickerToMonth(yearSelect, monthSelect, weekSelect, daySelect, year, 
 
 /* ---------------------------------------------------------
    6. 로그인 / 로그아웃
+   ---------------------------------------------------------
+   같은 고객번호로 스토어(광고주)가 여러 개 매칭되면, advertiser-login이
+   세션 토큰 없이 스토어 목록만 돌려준다. 그 목록을 선택 화면에 보여주고,
+   사용자가 카드를 고르면 advertiser_id를 같이 넣어 다시 로그인 요청을
+   보내 실제 세션 토큰을 받는다. 비밀번호는 그 사이 변수에만 잠깐 담아두고
+   저장소(sessionStorage 등)에는 절대 쓰지 않는다.
 --------------------------------------------------------- */
+let pendingLoginPassword = null;
+
 loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const password = passwordInput.value;
@@ -741,7 +761,13 @@ loginForm.addEventListener("submit", async (e) => {
   loginSubmitBtn.disabled = false;
   loginSubmitBtn.textContent = originalLabel;
 
-  if (result.success) {
+  if (result.success && result.requiresSelection) {
+    pendingLoginPassword = password;
+    passwordInput.value = "";
+    renderStorePicker(result.stores);
+    loginScreen.hidden = true;
+    storePickerScreen.hidden = false;
+  } else if (result.success) {
     passwordInput.value = "";
     showDashboard(result.advertiser);
   } else {
@@ -753,6 +779,48 @@ loginForm.addEventListener("submit", async (e) => {
       computedDisplay: getComputedStyle(loginError).display
     });
   }
+});
+
+function renderStorePicker(stores) {
+  storePickerError.hidden = true;
+  storePickerList.innerHTML = stores
+    .map(
+      (store) => `
+        <button type="button" class="store-picker-item" data-advertiser-id="${escapeHtml(store.id)}">
+          <span class="store-picker-item-name">${escapeHtml(store.name)}</span>
+          <span class="store-picker-item-arrow">→</span>
+        </button>
+      `
+    )
+    .join("");
+}
+
+storePickerList.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".store-picker-item");
+  if (!btn || btn.disabled || !pendingLoginPassword) return;
+
+  storePickerError.hidden = true;
+  storePickerList.querySelectorAll(".store-picker-item").forEach((el) => (el.disabled = true));
+
+  const result = await authenticateAdvertiser(pendingLoginPassword, btn.dataset.advertiserId);
+
+  if (result.success && result.advertiser) {
+    pendingLoginPassword = null;
+    storePickerScreen.hidden = true;
+    showDashboard(result.advertiser);
+  } else {
+    storePickerList.querySelectorAll(".store-picker-item").forEach((el) => (el.disabled = false));
+    storePickerError.textContent = result.message || "선택한 스토어로 접속하지 못했습니다.";
+    storePickerError.hidden = false;
+  }
+});
+
+storePickerBackBtn.addEventListener("click", () => {
+  pendingLoginPassword = null;
+  storePickerScreen.hidden = true;
+  loginScreen.hidden = false;
+  passwordInput.value = "";
+  passwordInput.focus();
 });
 
 logoutBtn.addEventListener("click", () => {
