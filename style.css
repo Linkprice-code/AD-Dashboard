@@ -110,6 +110,58 @@ button, input, select {
   color: var(--text-muted);
 }
 
+/* 스토어 선택 화면 */
+.store-picker-card {
+  max-width: 420px;
+}
+
+.store-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.store-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f9fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.store-picker-item:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.store-picker-item-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.store-picker-item-arrow {
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.store-picker-item:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.store-picker-back-btn {
+  width: 100%;
+  margin-top: 20px;
+}
+
 .login-form {
   display: flex;
   flex-direction: column;
