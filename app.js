@@ -24,6 +24,7 @@ const SA_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-
 const SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-mapping-upload`;
 const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
 const SA_BRAND_SEARCH_CONTRACT_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-brand-search-contract`;
+const SA_MANUAL_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-keyword-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -41,7 +42,9 @@ const MENU_ITEMS = [
   { id: "shopping", label: "쇼핑검색", channels: ["SA"], naverCampaignType: "SHOPPING" },
   { id: "brand", label: "브랜드검색", channels: ["SA"], naverCampaignType: "BRAND_SEARCH" },
   { id: "creative", label: "소재별 성과", channels: ["GFA"], gfaRawType: "creative" },
-  { id: "upload", label: "데이터 업로드", channels: ["GFA"] }
+  { id: "upload", label: "데이터 업로드", channels: ["GFA"] },
+  // SA API 연동이 없는 광고주(naver_api_customer_id 없음, 예: 쉬어)에게만 보인다.
+  { id: "sa-upload", label: "SA 데이터 업로드", channels: ["SA"], requiresSaManual: true }
 ];
 
 // raw_type -> "이름" 컬럼 헤더에 쓸 표시명
@@ -337,6 +340,75 @@ async function fetchSaKeywordPerformance(campaignType, { dateFrom, dateTo } = {}
   return payload;
 }
 
+// sa-keyword-performance(API 실시간 조회)의 수기 업로드 버전. sa_keyword_raw에서
+// 조회하며, 응답 모양이 같아서 renderKeywordTable() 등 렌더링 코드는 그대로 재사용한다.
+async function fetchSaManualKeywordPerformance(campaignType, { dateFrom, dateTo } = {}) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_MANUAL_KEYWORD_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({
+        campaign_type: campaignType,
+        date_from: dateFrom,
+        date_to: dateTo
+      })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
+// state.saMode에 따라 API(sa-performance) 또는 수기 업로드(sa_campaign_raw, gfa-performance
+// 재사용)로 자동 분기한다. groupBy는 "type"(캠페인 유형별) 또는 "campaign"(캠페인별).
+function fetchSaPerformanceAny(groupBy, opts) {
+  if (state.saMode === "manual") {
+    return fetchGfaPerformance(groupBy === "type" ? "sa_campaign_type" : "sa_campaign", opts);
+  }
+  return fetchSaPerformance(groupBy, opts);
+}
+
+// state.saMode에 따라 API(sa-keyword-performance) 또는 수기 업로드
+// (sa-manual-keyword-performance)로 자동 분기한다.
+function fetchSaKeywordPerformanceAny(campaignType, opts) {
+  if (state.saMode === "manual") {
+    return fetchSaManualKeywordPerformance(campaignType, opts);
+  }
+  return fetchSaKeywordPerformance(campaignType, opts);
+}
+
+// state.saMode에 따라 API(sa-product-performance) 또는 수기 업로드
+// (sa_product_raw, gfa-performance 재사용)로 자동 분기한다.
+function fetchSaProductPerformanceAny(opts) {
+  if (state.saMode === "manual") {
+    return fetchGfaPerformance("sa_product", opts);
+  }
+  return fetchSaProductPerformance(opts);
+}
+
 async function uploadSaProductMapping(rows) {
   const session = getSession();
   if (!session) {
@@ -498,6 +570,7 @@ const groupedNameHeader = document.getElementById("groupedNameHeader");
 const groupedTableBody = document.getElementById("groupedTableBody");
 
 const viewUpload = document.getElementById("view-upload");
+const viewSaUpload = document.getElementById("view-sa-upload");
 
 const viewTrend = document.getElementById("view-trend");
 const trendTitle = document.getElementById("trendTitle");
@@ -577,6 +650,9 @@ const breakdownNameHeader = document.getElementById("breakdownNameHeader");
 const state = {
   charts: {},
   currentChannel: "SA",
+  // "api" = sa-sync 자동 동기화(네이버 API), "manual" = sa_campaign_raw 등 수기 업로드.
+  // showDashboard()에서 로그인 응답의 advertiser.sa_manual로 정해진다.
+  saMode: "api",
   currentView: "overview",
   analysisPeriod: null,
   comparisonPeriod: null,
@@ -902,6 +978,7 @@ function showDashboard(advertiser) {
   dashboardScreen.hidden = false;
 
   advertiserNameEl.textContent = advertiser.name;
+  state.saMode = advertiser.sa_manual ? "manual" : "api";
 
   state.analysisPeriod = defaultAnalysisPeriod();
   state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
@@ -1072,8 +1149,8 @@ async function renderSaOverview() {
   const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
 
   const [currentResult, comparisonResult] = await Promise.all([
-    fetchSaPerformance("type", { dateFrom: from, dateTo: to }),
-    fetchSaPerformance("type", { dateFrom: compareFrom, dateTo: compareTo })
+    fetchSaPerformanceAny("type", { dateFrom: from, dateTo: to }),
+    fetchSaPerformanceAny("type", { dateFrom: compareFrom, dateTo: compareTo })
   ]);
 
   if (token !== state.overviewRenderToken) return;
@@ -1096,7 +1173,9 @@ async function renderSaOverview() {
   overviewEmptyNotice.hidden = hasData;
   if (!hasData) {
     overviewEmptyNotice.textContent =
-      "표시할 데이터가 없습니다. 네이버 SA 자동 동기화가 아직 실행되지 않았거나, 선택한 기간에 데이터가 없습니다.";
+      state.saMode === "manual"
+        ? '표시할 데이터가 없습니다. "SA 데이터 업로드" 메뉴에서 SA 캠페인 Raw를 먼저 올려주세요.'
+        : "표시할 데이터가 없습니다. 네이버 SA 자동 동기화가 아직 실행되지 않았거나, 선택한 기간에 데이터가 없습니다.";
   }
 
   renderKpiCards(
@@ -1322,7 +1401,7 @@ async function loadSaBreakdownData() {
   const token = ++state.overviewRenderToken;
   breakdownTableBody.innerHTML = '<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>';
 
-  const result = await fetchSaPerformance("campaign", {
+  const result = await fetchSaPerformanceAny("campaign", {
     dateFrom: state.analysisPeriod.from,
     dateTo: state.analysisPeriod.to
   });
@@ -1368,7 +1447,7 @@ async function renderKeywordView(item) {
   }
 
   const token = ++state.overviewRenderToken;
-  const result = await fetchSaKeywordPerformance(item.naverCampaignType, {
+  const result = await fetchSaKeywordPerformanceAny(item.naverCampaignType, {
     dateFrom: state.analysisPeriod.from,
     dateTo: state.analysisPeriod.to
   });
@@ -1521,7 +1600,9 @@ brandSearchContractTableBody.addEventListener("click", async (e) => {
 --------------------------------------------------------- */
 async function renderModelView() {
   modelViewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 상품별(모델별) 성과`;
-  productMappingUploadCard.hidden = state.currentChannel !== "SA";
+  // 상품 매핑 업로드는 API 자동 동기화용 보조 기능이라, 수기 업로드 광고주(sa_product_raw를
+  // 직접 올리는 쪽)에게는 필요 없다.
+  productMappingUploadCard.hidden = state.currentChannel !== "SA" || state.saMode === "manual";
   if (state.currentChannel === "GFA") {
     await renderGfaModelView();
   } else {
@@ -1534,7 +1615,7 @@ async function renderSaModelView() {
   modelViewNotice.hidden = true;
 
   const token = ++state.overviewRenderToken;
-  const result = await fetchSaProductPerformance({
+  const result = await fetchSaProductPerformanceAny({
     dateFrom: state.analysisPeriod.from,
     dateTo: state.analysisPeriod.to
   });
@@ -1554,7 +1635,9 @@ async function renderSaModelView() {
   if (result.rows.length === 0) {
     modelViewNotice.hidden = false;
     modelViewNotice.textContent =
-      "표시할 상품별 데이터가 없습니다. 위에서 상품 매핑 파일을 먼저 업로드해주세요 (업로드 후 다음 자동 동기화부터 반영됩니다 - 쇼핑검색 캠페인만 상품 단위 매칭이 가능합니다).";
+      state.saMode === "manual"
+        ? '표시할 상품별 데이터가 없습니다. "SA 데이터 업로드" 메뉴에서 SA 상품 Raw를 먼저 올려주세요.'
+        : "표시할 상품별 데이터가 없습니다. 위에서 상품 매핑 파일을 먼저 업로드해주세요 (업로드 후 다음 자동 동기화부터 반영됩니다 - 쇼핑검색 캠페인만 상품 단위 매칭이 가능합니다).";
   }
 
   const models = result.rows.map((r) => ({ model: r.name, category: null, ...r }));
@@ -1854,6 +1937,7 @@ function renderSidebarMenu() {
 
   MENU_ITEMS.forEach((item) => {
     if (!item.channels.includes(state.currentChannel)) return;
+    if (item.requiresSaManual && state.saMode !== "manual") return;
 
     const li = document.createElement("li");
     const btn = document.createElement("button");
@@ -1893,6 +1977,7 @@ function renderCurrentView() {
   viewKeyword.hidden = true;
   viewGrouped.hidden = true;
   viewUpload.hidden = true;
+  viewSaUpload.hidden = true;
   viewPlaceholder.hidden = true;
 
   const isGfa = state.currentChannel === "GFA";
@@ -1905,6 +1990,8 @@ function renderCurrentView() {
     renderTrendView();
   } else if (item.id === "upload") {
     viewUpload.hidden = false;
+  } else if (item.id === "sa-upload") {
+    viewSaUpload.hidden = false;
   } else if (item.id === "product") {
     viewModel.hidden = false;
     renderModelView();
@@ -1992,23 +2079,32 @@ const GFA_RAW_TYPE_COLUMNS = {
   campaign: ["date", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
   adgroup: ["date", "campaign", "ad_group", "impressions", "clicks", "cost", "conversions", "revenue"],
   adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"],
-  creative: ["date", "creative", "impressions", "clicks", "cost", "conversions", "revenue"]
+  creative: ["date", "creative", "impressions", "clicks", "cost", "conversions", "revenue"],
+  // SA API 연동이 없는 광고주(예: 쉬어)용 수기 업로드. campaign_type은 GFA와 달리 필수다
+  // (파워링크/쇼핑검색/브랜드검색 구분이 곧 이 데이터의 존재 이유라서).
+  sa_campaign: ["date", "campaign_type", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
+  sa_keyword: ["date", "campaign_type", "campaign", "keyword", "impressions", "clicks", "cost", "conversions", "revenue"],
+  sa_product: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"]
 };
 
 // requiredColumns와 달리, CSV에 없어도 업로드 자체는 막지 않는 추가 컬럼
 // (campaign_type은 캠페인 Raw에만 있고, 예전에 만든 템플릿이나 구버전 파일에는 없을 수 있다).
 const GFA_OPTIONAL_COLUMNS = {
-  campaign: ["campaign_type"]
+  campaign: ["campaign_type"],
+  sa_keyword: ["ad_group"],
+  sa_product: ["naver_ad_id"]
 };
 
 // 내부 필드명 -> 실제 CSV에 올 수 있는 헤더 이름 후보 (전부 소문자/trim 비교)
 const GFA_HEADER_ALIASES = {
   date: ["date", "기간", "날짜", "일자"],
   campaign: ["campaign", "캠페인 이름", "캠페인명"],
-  campaign_type: ["campaign_type", "캠페인 목적"],
+  campaign_type: ["campaign_type", "캠페인 목적", "캠페인 유형"],
   ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명"],
   product: ["product", "상품명", "상품 이름"],
   creative: ["creative", "소재 이름", "소재명", "소재"],
+  keyword: ["keyword", "키워드", "키워드명"],
+  naver_ad_id: ["naver_ad_id", "소재 id", "소재id"],
   impressions: ["impressions", "노출수"],
   clicks: ["clicks", "클릭수"],
   cost: ["cost", "총비용", "비용"],
@@ -2030,8 +2126,42 @@ const GFA_RAW_TYPE_TEMPLATE_CSV = {
     "2026-08-01,ADVoost,15200,320,540000,18,3200000\n",
   creative:
     "date,creative,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,여름신상_소재A,15200,320,540000,18,3200000\n"
+    "2026-08-01,여름신상_소재A,15200,320,540000,18,3200000\n",
+  sa_campaign:
+    "date,campaign_type,campaign,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,파워링크,여름신상프로모션,15200,320,540000,18,3200000\n",
+  sa_keyword:
+    "date,campaign_type,campaign,ad_group,keyword,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,파워링크,여름신상프로모션,키워드그룹A,아기침대,5200,120,140000,3,320000\n",
+  sa_product:
+    "date,product,naver_ad_id,impressions,clicks,cost,conversions,revenue\n" +
+    "2026-08-01,홈앤힐 아기침대,nad-a001-01-000000001,15200,320,540000,18,3200000\n"
 };
+
+// SA 수기 업로드(sa_campaign/sa_keyword)의 campaign_type 값을 내부 코드로 정규화한다.
+// 한글 라벨과 영문 코드를 둘 다 받아들인다.
+const SA_CAMPAIGN_TYPE_ALIASES = {
+  "파워링크": "WEB_SITE",
+  "웹사이트": "WEB_SITE",
+  "WEB_SITE": "WEB_SITE",
+  "쇼핑검색": "SHOPPING",
+  "SHOPPING": "SHOPPING",
+  "브랜드검색": "BRAND_SEARCH",
+  "BRAND_SEARCH": "BRAND_SEARCH"
+};
+
+function normalizeSaCampaignTypeRows(rows) {
+  return rows.map((row, i) => {
+    const trimmed = String(row.campaign_type ?? "").trim();
+    const code = SA_CAMPAIGN_TYPE_ALIASES[trimmed] || SA_CAMPAIGN_TYPE_ALIASES[trimmed.toUpperCase()];
+    if (!code) {
+      throw new Error(
+        `${i + 1}번째 행: 캠페인 유형("${row.campaign_type}")을 알아볼 수 없습니다. 파워링크/쇼핑검색/브랜드검색 중 하나로 입력해주세요.`
+      );
+    }
+    return { ...row, campaign_type: code };
+  });
+}
 
 const GFA_MAX_UPLOAD_ROWS = 20000;
 const GFA_NUMERIC_FIELDS = ["impressions", "clicks", "cost", "conversions", "revenue"];
@@ -2145,8 +2275,8 @@ function parseGfaCsv(text, requiredColumns, optionalColumns = []) {
   });
 }
 
-// 캠페인 / 그룹 / ADV 3개 업로드 폼에 공통 로직을 붙인다.
-document.querySelectorAll("#view-upload .upload-form").forEach((form) => {
+// 캠페인 / 그룹 / ADV / SA 수기 업로드 폼에 공통 로직을 붙인다.
+document.querySelectorAll("#view-upload .upload-form, #view-sa-upload .upload-form").forEach((form) => {
   const rawType = form.dataset.rawType;
   const fileInput = form.querySelector(".upload-file-input");
   const statusEl = form.closest(".upload-card").querySelector(".upload-status");
@@ -2165,7 +2295,10 @@ document.querySelectorAll("#view-upload .upload-form").forEach((form) => {
 
     try {
       const text = await file.text();
-      const rows = parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
+      let rows = parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
+      if (rawType === "sa_campaign" || rawType === "sa_keyword") {
+        rows = normalizeSaCampaignTypeRows(rows);
+      }
 
       if (rows.length === 0) {
         throw new Error("업로드할 데이터가 없습니다.");
@@ -2201,7 +2334,7 @@ function showUploadStatus(statusEl, message, type) {
 }
 
 // CSV 템플릿 다운로드 링크 (정적 파일 없이 브라우저에서 즉석으로 생성)
-document.querySelectorAll("#view-upload .upload-template-link").forEach((link) => {
+document.querySelectorAll("#view-upload .upload-template-link, #view-sa-upload .upload-template-link").forEach((link) => {
   const template = GFA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template];
   if (template) {
     link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(template);
