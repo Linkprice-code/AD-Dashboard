@@ -22,6 +22,7 @@ const GFA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-perfor
 const SA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-performance`;
 const SA_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-keyword-performance`;
 const SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-mapping-upload`;
+const SA_PRODUCT_MODEL_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-model-mapping-upload`;
 const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
 const SA_BRAND_SEARCH_CONTRACT_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-brand-search-contract`;
 const SA_MANUAL_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-keyword-performance`;
@@ -445,6 +446,42 @@ async function uploadSaProductMapping(rows) {
   return payload;
 }
 
+async function uploadSaProductModelMapping(rows) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_PRODUCT_MODEL_MAPPING_UPLOAD_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ rows })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "업로드에 실패했습니다." };
+  }
+
+  return payload;
+}
+
 async function fetchSaProductPerformance({ dateFrom, dateTo } = {}) {
   const session = getSession();
   if (!session) {
@@ -598,6 +635,10 @@ const productMappingUploadCard = document.getElementById("productMappingUploadCa
 const productMappingUploadForm = document.getElementById("productMappingUploadForm");
 const productMappingFileInput = document.getElementById("productMappingFileInput");
 const productMappingUploadStatus = document.getElementById("productMappingUploadStatus");
+const productModelMappingUploadCard = document.getElementById("productModelMappingUploadCard");
+const productModelMappingUploadForm = document.getElementById("productModelMappingUploadForm");
+const productModelMappingFileInput = document.getElementById("productModelMappingFileInput");
+const productModelMappingUploadStatus = document.getElementById("productModelMappingUploadStatus");
 const modelListCard = document.getElementById("modelListCard");
 const modelCardGrid = document.getElementById("modelCardGrid");
 const modelSearchInput = document.getElementById("modelSearchInput");
@@ -1603,6 +1644,7 @@ async function renderModelView() {
   // 상품 매핑 업로드는 API 자동 동기화용 보조 기능이라, 수기 업로드 광고주(sa_product_raw를
   // 직접 올리는 쪽)에게는 필요 없다.
   productMappingUploadCard.hidden = state.currentChannel !== "SA" || state.saMode === "manual";
+  productModelMappingUploadCard.hidden = state.currentChannel !== "SA" || state.saMode === "manual";
   if (state.currentChannel === "GFA") {
     await renderGfaModelView();
   } else {
@@ -2079,39 +2121,46 @@ const GFA_RAW_TYPE_COLUMNS = {
   campaign: ["date", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
   adgroup: ["date", "campaign", "ad_group", "impressions", "clicks", "cost", "conversions", "revenue"],
   adv: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"],
-  creative: ["date", "creative", "impressions", "clicks", "cost", "conversions", "revenue"],
-  // SA API 연동이 없는 광고주(예: 쉬어)용 수기 업로드. campaign_type은 GFA와 달리 필수다
-  // (파워링크/쇼핑검색/브랜드검색 구분이 곧 이 데이터의 존재 이유라서).
-  sa_campaign: ["date", "campaign_type", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
-  sa_keyword: ["date", "campaign_type", "campaign", "keyword", "impressions", "clicks", "cost", "conversions", "revenue"],
-  sa_product: ["date", "product", "impressions", "clicks", "cost", "conversions", "revenue"]
+  creative: ["date", "creative", "impressions", "clicks", "cost", "conversions", "revenue"]
 };
 
 // requiredColumns와 달리, CSV에 없어도 업로드 자체는 막지 않는 추가 컬럼
 // (campaign_type은 캠페인 Raw에만 있고, 예전에 만든 템플릿이나 구버전 파일에는 없을 수 있다).
 const GFA_OPTIONAL_COLUMNS = {
-  campaign: ["campaign_type"],
-  sa_keyword: ["ad_group"],
+  campaign: ["campaign_type"]
+};
+
+// SA API 연동이 없는 광고주(예: 쉬어)용 수기 업로드 - 네이버가 실제로 주는 리포트는
+// GFA와 완전히 다른 형식(첫 줄에 "쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"처럼 기간이
+// 있고, 그 다음 줄이 진짜 헤더, 행마다 날짜가 없다)이라 parseSaRawCsv로 따로 파싱한다.
+// campaign은 검색어(키워드) 리포트에는 아예 없는 경우가 많아 sa_keyword에서는 선택 컬럼이다.
+const SA_RAW_TYPE_COLUMNS = {
+  sa_campaign: ["campaign_type", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
+  sa_keyword: ["campaign_type", "keyword", "impressions", "clicks", "cost", "conversions", "revenue"],
+  sa_product: ["product", "impressions", "clicks", "cost", "conversions", "revenue"]
+};
+const SA_OPTIONAL_COLUMNS = {
+  sa_keyword: ["campaign", "ad_group"],
   sa_product: ["naver_ad_id"]
 };
 
 // 내부 필드명 -> 실제 CSV에 올 수 있는 헤더 이름 후보 (전부 소문자/trim 비교)
 const GFA_HEADER_ALIASES = {
   date: ["date", "기간", "날짜", "일자"],
-  campaign: ["campaign", "캠페인 이름", "캠페인명"],
-  campaign_type: ["campaign_type", "캠페인 목적", "캠페인 유형"],
+  campaign: ["campaign", "캠페인 이름", "캠페인명", "캠페인"],
+  campaign_type: ["campaign_type", "캠페인 목적", "캠페인 유형", "캠페인유형"],
   ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명"],
   product: ["product", "상품명", "상품 이름"],
   creative: ["creative", "소재 이름", "소재명", "소재"],
-  keyword: ["keyword", "키워드", "키워드명"],
+  keyword: ["keyword", "키워드", "키워드명", "검색어"],
   naver_ad_id: ["naver_ad_id", "소재 id", "소재id"],
   impressions: ["impressions", "노출수"],
   clicks: ["clicks", "클릭수"],
   cost: ["cost", "총비용", "비용"],
   // 전환/매출은 종류가 여러 개(총 전환수, 회원가입 수 등) 나오는데
-  // "구매완료" 기준만 쓴다.
-  conversions: ["conversions", "구매완료 수", "구매완료수"],
-  revenue: ["revenue", "구매완료 전환매출액", "구매완료 매출액", "구매완료전환매출액"]
+  // "구매완료" 기준만 쓴다. 네이버 SA 리포트는 "구매완료 전환수" / "구매완료 전환매출액(원)"으로 나온다.
+  conversions: ["conversions", "구매완료 수", "구매완료수", "구매완료 전환수"],
+  revenue: ["revenue", "구매완료 전환매출액", "구매완료 매출액", "구매완료전환매출액", "구매완료 전환매출액(원)"]
 };
 
 const GFA_RAW_TYPE_TEMPLATE_CSV = {
@@ -2126,16 +2175,23 @@ const GFA_RAW_TYPE_TEMPLATE_CSV = {
     "2026-08-01,ADVoost,15200,320,540000,18,3200000\n",
   creative:
     "date,creative,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,여름신상_소재A,15200,320,540000,18,3200000\n",
+    "2026-08-01,여름신상_소재A,15200,320,540000,18,3200000\n"
+};
+
+// SA 수기 업로드 템플릿 - 네이버 실제 리포트와 똑같이 첫 줄에 기간, 둘째 줄에 헤더.
+const SA_RAW_TYPE_TEMPLATE_CSV = {
   sa_campaign:
-    "date,campaign_type,campaign,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,파워링크,여름신상프로모션,15200,320,540000,18,3200000\n",
+    '"쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"\n' +
+    "캠페인유형,캠페인,노출수,클릭수,총비용,구매완료 전환수,구매완료 전환매출액(원)\n" +
+    "쇼핑검색,여름신상프로모션,15200,320,540000,18,3200000\n",
   sa_keyword:
-    "date,campaign_type,campaign,ad_group,keyword,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,파워링크,여름신상프로모션,키워드그룹A,아기침대,5200,120,140000,3,320000\n",
+    '"쉬어 키워드 raw(2026.07.01.~2026.08.23.)"\n' +
+    "캠페인유형,검색어,노출수,클릭수,총비용,구매완료 전환수,구매완료 전환매출액(원)\n" +
+    "쇼핑검색,아기침대,5200,120,140000,3,320000\n",
   sa_product:
-    "date,product,naver_ad_id,impressions,clicks,cost,conversions,revenue\n" +
-    "2026-08-01,홈앤힐 아기침대,nad-a001-01-000000001,15200,320,540000,18,3200000\n"
+    '"쉬어 상품 raw(2026.07.01.~2026.08.23.)"\n' +
+    "상품명,노출수,클릭수,총비용,구매완료 전환수,구매완료 전환매출액(원)\n" +
+    "홈앤힐 아기침대,15200,320,540000,18,3200000\n"
 };
 
 // SA 수기 업로드(sa_campaign/sa_keyword)의 campaign_type 값을 내부 코드로 정규화한다.
@@ -2275,6 +2331,106 @@ function parseGfaCsv(text, requiredColumns, optionalColumns = []) {
   });
 }
 
+// 네이버 SA 실제 리포트 형식: 첫 줄에 "쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"처럼
+// 제목+기간이 있고, 그 다음 몇 줄 안에 진짜 헤더가 나온다 (GFA와 달리 행마다 날짜가
+// 없다 - 첫 줄의 기간 전체를 합친 데이터). 기간을 자동으로 읽어서 모든 행에 같은
+// date(시작일)/date_to(종료일)를 채워 넣는다.
+const SA_TITLE_DATE_RANGE_RE = /(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?\s*~\s*(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?/;
+
+function parseSaRawCsv(text, requiredColumns, optionalColumns = []) {
+  const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
+  if (lines.length < 2) {
+    throw new Error("업로드할 데이터가 없습니다.");
+  }
+
+  const titleMatch = lines[0].match(SA_TITLE_DATE_RANGE_RE);
+  if (!titleMatch) {
+    throw new Error(
+      '첫 줄에서 기간(예: "2026.07.01.~2026.08.23.")을 찾지 못했습니다. 네이버에서 다운로드한 파일을 수정 없이 그대로 올려주세요.'
+    );
+  }
+  const [, y1, m1, d1, y2, m2, d2] = titleMatch;
+  const dateFrom = `${y1}-${m1.padStart(2, "0")}-${d1.padStart(2, "0")}`;
+  const dateTo = `${y2}-${m2.padStart(2, "0")}-${d2.padStart(2, "0")}`;
+  if (dateFrom > dateTo) {
+    throw new Error("첫 줄의 기간이 올바르지 않습니다 (시작일이 종료일보다 늦습니다).");
+  }
+
+  // 헤더 행 찾기: 제목 다음 몇 줄 안에서 "노출수"/"클릭수"에 해당하는 셀이 있는 첫 줄.
+  let headerIdx = -1;
+  const searchLimit = Math.min(lines.length, 6);
+  for (let i = 1; i < searchLimit; i++) {
+    const cells = splitCsvLine(lines[i]).map((c) => c.trim().toLowerCase());
+    const hasImpressions = GFA_HEADER_ALIASES.impressions.some((a) => cells.includes(a));
+    const hasClicks = GFA_HEADER_ALIASES.clicks.some((a) => cells.includes(a));
+    if (hasImpressions || hasClicks) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx === -1) {
+    throw new Error('헤더 행을 찾지 못했습니다 ("노출수"/"클릭수" 컬럼이 있는 줄이 있어야 합니다).');
+  }
+
+  const header = splitCsvLine(lines[headerIdx]).map((h) => h.trim().toLowerCase());
+
+  const columnIndex = {};
+  const missing = [];
+  requiredColumns.forEach((field) => {
+    const idx = findColumnIndex(header, GFA_HEADER_ALIASES[field] || [field]);
+    if (idx === -1) {
+      missing.push((GFA_HEADER_ALIASES[field] || [field])[0]);
+    } else {
+      columnIndex[field] = idx;
+    }
+  });
+  if (missing.length > 0) {
+    throw new Error(`CSV에서 다음 컬럼을 찾지 못했습니다: ${missing.join(", ")}`);
+  }
+
+  // optionalColumns는 없어도 업로드를 막지 않는다.
+  optionalColumns.forEach((field) => {
+    const idx = findColumnIndex(header, GFA_HEADER_ALIASES[field] || [field]);
+    if (idx !== -1) columnIndex[field] = idx;
+  });
+
+  const allFields = [...requiredColumns, ...optionalColumns];
+
+  return lines.slice(headerIdx + 1).map((line) => {
+    const cells = splitCsvLine(line);
+    const row = { date: dateFrom, date_to: dateTo };
+
+    allFields.forEach((field) => {
+      if (!(field in columnIndex)) return; // optional인데 이 파일엔 없는 컬럼
+
+      const cellValue = (cells[columnIndex[field]] ?? "").trim();
+      if (GFA_NUMERIC_FIELDS.includes(field)) {
+        row[field] = toGfaNumber(cellValue);
+      } else {
+        row[field] = cellValue;
+      }
+    });
+
+    return row;
+  });
+}
+
+// .xlsx/.xls는 SheetJS(XLSX)로 첫 시트를 CSV 텍스트로 바꿔서, 기존 CSV 파서를 그대로
+// 재사용한다 (엑셀에서 "다른 이름으로 저장 > CSV" 할 때 생기는 인코딩/구분자 문제를 피한다).
+async function readUploadFileAsCsvText(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      throw new Error("엑셀 파일에 시트가 없습니다.");
+    }
+    return XLSX.utils.sheet_to_csv(workbook.Sheets[firstSheetName]);
+  }
+  return file.text();
+}
+
 // 캠페인 / 그룹 / ADV / SA 수기 업로드 폼에 공통 로직을 붙인다.
 document.querySelectorAll("#view-upload .upload-form, #view-sa-upload .upload-form").forEach((form) => {
   const rawType = form.dataset.rawType;
@@ -2294,8 +2450,11 @@ document.querySelectorAll("#view-upload .upload-form, #view-sa-upload .upload-fo
     submitBtn.textContent = "업로드 중...";
 
     try {
-      const text = await file.text();
-      let rows = parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
+      const text = await readUploadFileAsCsvText(file);
+      const isSaRawType = rawType.startsWith("sa_");
+      let rows = isSaRawType
+        ? parseSaRawCsv(text, SA_RAW_TYPE_COLUMNS[rawType], SA_OPTIONAL_COLUMNS[rawType] || [])
+        : parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
       if (rawType === "sa_campaign" || rawType === "sa_keyword") {
         rows = normalizeSaCampaignTypeRows(rows);
       }
@@ -2335,7 +2494,7 @@ function showUploadStatus(statusEl, message, type) {
 
 // CSV 템플릿 다운로드 링크 (정적 파일 없이 브라우저에서 즉석으로 생성)
 document.querySelectorAll("#view-upload .upload-template-link, #view-sa-upload .upload-template-link").forEach((link) => {
-  const template = GFA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template];
+  const template = GFA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template] || SA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template];
   if (template) {
     link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(template);
   }
@@ -2388,6 +2547,79 @@ function parseSaProductMappingCsv(text) {
   return [...seen.values()];
 }
 
+/* ---------------------------------------------------------
+   7-3b. SA 상품코드 <-> 모델명 매핑 업로드
+   ---------------------------------------------------------
+   "상품코드,모델명" 2컬럼짜리 CSV/엑셀을 그대로 업로드한다. 맨 위에 안내
+   문구가 한 줄 더 있을 수 있어서, "상품코드"/"모델명" 헤더가 있는 실제
+   헤더 행을 찾아서 쓴다 (영문 헤더 product_code/model_name도 허용).
+--------------------------------------------------------- */
+function parseSaProductModelMappingCsv(text) {
+  const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
+
+  const headerIdx = lines.findIndex((line) => {
+    const cells = splitCsvLine(line).map((c) => c.trim().toLowerCase());
+    return (
+      (cells.includes("상품코드") || cells.includes("product_code")) &&
+      (cells.includes("모델명") || cells.includes("model_name"))
+    );
+  });
+  if (headerIdx === -1) {
+    throw new Error('"상품코드"/"모델명" 헤더를 찾을 수 없습니다. 파일 형식을 확인해주세요.');
+  }
+
+  const header = splitCsvLine(lines[headerIdx]).map((h) => h.trim().toLowerCase());
+  const idxCode = header.indexOf("상품코드") !== -1 ? header.indexOf("상품코드") : header.indexOf("product_code");
+  const idxModel = header.indexOf("모델명") !== -1 ? header.indexOf("모델명") : header.indexOf("model_name");
+
+  const seen = new Map();
+  for (const line of lines.slice(headerIdx + 1)) {
+    const cells = splitCsvLine(line);
+    const productCode = (cells[idxCode] ?? "").trim();
+    const modelName = (cells[idxModel] ?? "").trim();
+    if (!productCode || !modelName) continue;
+
+    seen.set(productCode, { product_code: productCode, model_name: modelName });
+  }
+
+  return [...seen.values()];
+}
+
+productModelMappingUploadForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const file = productModelMappingFileInput.files[0];
+  if (!file) return;
+
+  productModelMappingUploadStatus.hidden = true;
+  const submitBtn = productModelMappingUploadForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = "업로드 중...";
+
+  try {
+    const text = await readUploadFileAsCsvText(file);
+    const rows = parseSaProductModelMappingCsv(text);
+
+    if (rows.length === 0) {
+      throw new Error("업로드할 데이터가 없습니다.");
+    }
+
+    const result = await uploadSaProductModelMapping(rows);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    showUploadStatus(productModelMappingUploadStatus, `업로드 완료: 상품코드 ${result.inserted}개 매핑 저장`, "success");
+    productModelMappingUploadForm.reset();
+  } catch (err) {
+    showUploadStatus(productModelMappingUploadStatus, err.message || "업로드 중 오류가 발생했습니다.", "error");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
+});
+
 productMappingUploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -2401,7 +2633,7 @@ productMappingUploadForm.addEventListener("submit", async (e) => {
   submitBtn.textContent = "업로드 중...";
 
   try {
-    const text = await file.text();
+    const text = await readUploadFileAsCsvText(file);
     const rows = parseSaProductMappingCsv(text);
 
     if (rows.length === 0) {
