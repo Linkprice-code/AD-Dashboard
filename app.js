@@ -957,20 +957,79 @@ pdfExportBtn.addEventListener("click", exportCurrentViewToPdf);
 // jsPDF 내장 폰트(Helvetica 등)는 한글 글리프가 없어서 pdf.text()로 직접 그리면
 // 깨진 문자가 나온다. 그래서 헤더도 본문처럼 html2canvas로 화면 그대로 캡처해서
 // 이미지로 넣는다 (브라우저가 렌더링하므로 한글이 정상적으로 나온다).
+// 로고/브랜드 컬러(로그인 화면과 동일한 그라디언트)를 넣어 톤앤매너를 맞춘다.
+let pdfHeaderLogoUidCounter = 0;
 function buildPdfHeaderElement(titleText, subtitleText) {
+  const uid = `pdfhdr${++pdfHeaderLogoUidCounter}`;
   const el = document.createElement("div");
   el.style.cssText =
-    "position:fixed; left:-9999px; top:0; width:900px; padding:0; " +
-    "background:#f3f5f9; font-family:'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;";
-  el.innerHTML =
-    `<div style="font-size:22px; font-weight:700; color:#1a1f2b; margin-bottom:8px;">${escapeHtml(titleText)}</div>` +
-    `<div style="font-size:14px; color:#5a6275;">${escapeHtml(subtitleText)}</div>`;
+    "position:fixed; left:-9999px; top:0; width:900px; box-sizing:border-box; padding:18px 24px; " +
+    "background:#ffffff; border:1px solid #e4e8f0; border-radius:12px; " +
+    "font-family:'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; " +
+    "display:flex; align-items:center; gap:14px;";
+  el.innerHTML = `
+    <svg width="40" height="36" viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="${uid}Blue" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stop-color="#eaf1fc"/>
+          <stop offset="55%" stop-color="#5f8ad9"/>
+          <stop offset="100%" stop-color="#1f4a9b"/>
+        </radialGradient>
+        <radialGradient id="${uid}Red" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stop-color="#fceceb"/>
+          <stop offset="50%" stop-color="#e2545a"/>
+          <stop offset="100%" stop-color="#b81f2d"/>
+        </radialGradient>
+        <radialGradient id="${uid}Yellow" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stop-color="#fffbe8"/>
+          <stop offset="55%" stop-color="#f6cf4b"/>
+          <stop offset="100%" stop-color="#e2a41a"/>
+        </radialGradient>
+      </defs>
+      <line x1="26" y1="60" x2="58" y2="24" stroke="#e08a2e" stroke-width="3"/>
+      <line x1="58" y1="24" x2="84" y2="16" stroke="#eab54a" stroke-width="3"/>
+      <circle cx="26" cy="60" r="24" fill="url(#${uid}Blue)"/>
+      <circle cx="58" cy="24" r="14" fill="url(#${uid}Red)"/>
+      <circle cx="84" cy="16" r="11" fill="url(#${uid}Yellow)"/>
+    </svg>
+    <div style="border-left:3px solid #1f4a9b; padding-left:14px; flex:1;">
+      <div style="font-size:11px; font-weight:700; letter-spacing:1px; color:#1f4a9b; text-transform:uppercase; margin-bottom:2px;">LinkPrice · ADS PERFORMANCE</div>
+      <div style="font-size:22px; font-weight:700; color:#1a1f2b; margin-bottom:4px;">${escapeHtml(titleText)}</div>
+      <div style="font-size:13px; color:#5a6275;">${escapeHtml(subtitleText)}</div>
+    </div>
+  `;
   document.body.appendChild(el);
   return el;
 }
 
+// html2canvas는 Chart.js가 그려둔 <canvas>를 직접 캡처하려고 하면 멈춰버리는 경우가
+// 있다(무한 대기). 그래서 캡처 직전에 각 canvas를 현재 그려진 그림을 담은 <img>로
+// 잠깐 바꿔치기하고(같은 자리에 겹쳐서), 캡처가 끝나면 원래대로 되돌린다.
+function swapCanvasesForImages(root) {
+  const canvases = [...root.querySelectorAll("canvas")];
+  const restore = canvases.map((canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const img = document.createElement("img");
+    img.src = canvas.toDataURL("image/png");
+    img.style.cssText = `width:${rect.width}px; height:${rect.height}px; display:block;`;
+    canvas.insertAdjacentElement("afterend", img);
+    const prevDisplay = canvas.style.display;
+    canvas.style.display = "none";
+    return () => {
+      img.remove();
+      canvas.style.display = prevDisplay;
+    };
+  });
+  return () => restore.forEach((fn) => fn());
+}
+
 async function captureElementAsCanvas(el) {
-  return html2canvas(el, { scale: 2, backgroundColor: "#f3f5f9", useCORS: true });
+  const restore = swapCanvasesForImages(el);
+  try {
+    return await html2canvas(el, { scale: 2, backgroundColor: "#f3f5f9", useCORS: true });
+  } finally {
+    restore();
+  }
 }
 
 // pdf에 [헤더 이미지 + target 캡처 이미지]를 한 구역으로 추가한다. 내용이 한
@@ -1023,22 +1082,44 @@ async function exportCurrentViewToPdf() {
 
     if (state.currentView === "overview") {
       // "성과 대시보드"는 지금 보고 있는 채널과 상관없이 SA를 먼저, GFA를 그 다음
-      // 페이지로 항상 같이 뽑는다 (SA/GFA를 한 리포트로 같이 보고 싶어함).
+      // 페이지로 항상 같이 뽑는다 (SA/GFA를 한 리포트로 같이 보고 싶어함). 채널별로
+      // 성과 대시보드 다음 페이지에 상품별 데이터도 이어서 넣는다.
       fileLabel = "성과대시보드";
       const channels = ["SA", "GFA"];
-      for (let i = 0; i < channels.length; i++) {
-        state.currentChannel = channels[i];
+      let isFirstSection = true;
+      for (const channel of channels) {
+        state.currentChannel = channel;
         applyChannelVisibility();
+
+        viewModel.hidden = true;
+        viewOverview.hidden = false;
         await renderOverview();
-        const target = document.querySelector("#content .view:not([hidden])");
+        let target = document.querySelector("#content .view:not([hidden])");
         await addPdfSection(
           pdf,
           target,
           advertiserName,
-          `${CHANNEL_LABELS[channels[i]]} 성과 대시보드 · ${periodLabel.textContent || ""}`,
-          i === 0
+          `${CHANNEL_LABELS[channel]} 성과 대시보드 · ${periodLabel.textContent || ""}`,
+          isFirstSection
+        );
+        isFirstSection = false;
+
+        viewOverview.hidden = true;
+        viewModel.hidden = false;
+        await renderModelView();
+        target = document.querySelector("#content .view:not([hidden])");
+        await addPdfSection(
+          pdf,
+          target,
+          advertiserName,
+          `${CHANNEL_LABELS[channel]} 상품별 데이터 · ${periodLabel.textContent || ""}`,
+          false
         );
       }
+      // 마지막이 GFA로 끝나면 아래 finally의 채널 복원 로직이 화면을 다시 안 그릴 수 있어
+      // (원래 채널도 GFA였던 경우), 뷰 표시 상태만 먼저 "성과 대시보드"로 되돌려둔다.
+      viewModel.hidden = true;
+      viewOverview.hidden = false;
     } else {
       const target = document.querySelector("#content .view:not([hidden])");
       if (!target) return;
