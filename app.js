@@ -1107,6 +1107,15 @@ async function exportCurrentViewToPdf() {
         viewOverview.hidden = true;
         viewModel.hidden = false;
         await renderModelView();
+        // 리포트에는 업로드용 위젯이 들어갈 필요가 없으니(데이터가 아니라 조작용 UI라)
+        // 캡처 직전에만 숨긴다. 채널을 다시 바꾸면 renderModelView가 알아서 원래 상태로
+        // 되돌려두니 따로 복원할 필요는 없다.
+        productMappingUploadCard.hidden = true;
+        productModelMappingUploadCard.hidden = true;
+        // Chart.js는 캔버스에 실제로 그리는 게 requestAnimationFrame 기준이라, renderModelView가
+        // resolve된 시점에는 아직 안 그려져 있을 수 있다. 캡처 전에 두 프레임 정도 기다려서
+        // 차트가 빈 이미지로 캡처되는 걸 막는다.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         target = document.querySelector("#content .view:not([hidden])");
         await addPdfSection(
           pdf,
