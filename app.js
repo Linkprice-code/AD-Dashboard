@@ -1839,6 +1839,14 @@ async function renderSaModelView() {
 
 // ADVoost 쇼핑은 검색어(키워드) 단위 데이터가 원래 없어서, 카드 목록/클릭 상세 없이
 // 모델 매출 비중 + 주요 5개 상품 CVR&ROAS 차트 2개만 보여준다.
+// GFA의 ADV Raw는 SA와 달리 상품코드가 없이 상품명 텍스트만 있다. 그런데 그 상품명
+// 끝에 "...에센셜 베이지(RM70F90R2GD)"처럼 모델코드가 괄호로 붙어있는 경우가 있어서,
+// 있으면 그 코드만 뽑아 깔끔하게 표시하고 없으면 원래 상품명을 그대로 쓴다.
+function extractModelCodeFromProductName(name) {
+  const match = String(name ?? "").match(/\(([A-Z0-9+]{4,50})\)\s*$/);
+  return match ? match[1] : null;
+}
+
 async function renderGfaModelView() {
   modelListCard.hidden = true;
   modelViewNotice.hidden = true;
@@ -1865,6 +1873,7 @@ async function renderGfaModelView() {
       '표시할 데이터가 없습니다. "데이터 업로드" 메뉴에서 ADV Raw를 먼저 업로드해주세요.';
   }
 
+  result.rows = result.rows.map((r) => ({ ...r, name: extractModelCodeFromProductName(r.name) || r.name }));
   const models = result.rows.map((r) => ({ model: r.name, category: null, ...r }));
   const top5 = [...models].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
 
