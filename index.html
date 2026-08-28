@@ -538,8 +538,9 @@
         <h2 class="view-title">SA 데이터 업로드</h2>
         <p class="upload-intro">
           네이버 검색광고 관리시스템에서 다운로드한 리포트 파일을 <b>수정 없이 그대로</b> 올리시면 됩니다
-          (엑셀 .xlsx도 됩니다). 파일 첫 줄의 "쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"처럼
-          괄호 안 기간을 자동으로 읽어서, 그 기간 전체 합계 데이터로 저장합니다.
+          (엑셀 .xlsx도 됩니다). 캠페인/키워드/상품 Raw처럼 행마다 날짜가 없으면 파일 첫 줄의
+          "쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"처럼 괄호 안 기간을 그 데이터의 기간으로 저장하고,
+          그룹 Raw처럼 "일별" 컬럼이 있으면 행마다 그 날짜로 저장합니다 (둘 다 자동으로 인식합니다).
           <b>캠페인 유형</b>은 "파워링크"/"쇼핑검색"/"브랜드검색" 등 원본 표기를 그대로 인식합니다.
         </p>
 
@@ -571,10 +572,10 @@
 
           <div class="upload-card">
             <h3 class="upload-card-title">SA 상품 Raw</h3>
-            <code class="upload-columns">상품명, 노출수, 클릭수, 총비용, 구매완료 전환수, 구매완료 전환매출액</code>
+            <code class="upload-columns">소재ID, 노출수, 클릭수, 총비용, 구매완료 전환수, 구매완료 전환매출액</code>
             <span class="breakdown-hint">
-              쇼핑검색 상품별 데이터에 쓰입니다. 소재ID와 상품명을 미리 매칭해서, 상품명 컬럼에
-              바로 채워서 올려주세요.
+              쇼핑검색 상품별 데이터에 쓰입니다. 소재ID 그대로 올리면 되고, 상품명 매칭은
+              "상품별 데이터" 메뉴의 상품 매핑 파일 업로드로 따로 합니다.
             </span>
             <a class="upload-template-link" data-template="sa_product" download="sa_product_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="sa_product">
@@ -584,11 +585,23 @@
             <p class="upload-status" hidden></p>
           </div>
 
+          <div class="upload-card">
+            <h3 class="upload-card-title">SA 그룹 Raw</h3>
+            <code class="upload-columns">일별, 광고그룹, 노출수, 클릭수, 총비용, 구매완료 전환수, 구매완료 전환매출액</code>
+            <span class="breakdown-hint">성과 대시보드의 "그룹별" 탭에 쓰입니다. 캠페인/캠페인유형 컬럼은 없어도 됩니다.</span>
+            <a class="upload-template-link" data-template="sa_adgroup" download="sa_adgroup_raw_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form" data-raw-type="sa_adgroup">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
         </div>
 
         <p class="upload-note">
-          같은 종류(캠페인/키워드/상품)에서 같은 시작일로 다시 업로드하면, 그 데이터는
-          새 데이터로 교체됩니다 (중복 누적 방지).
+          같은 종류(캠페인/키워드/상품/그룹)에서 같은 날짜(또는 시작일)로 다시 업로드하면,
+          그 데이터는 새 데이터로 교체됩니다 (중복 누적 방지).
         </p>
       </div>
 
