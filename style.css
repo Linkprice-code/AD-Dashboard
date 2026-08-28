@@ -919,6 +919,13 @@ button, input, select {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
   padding: 20px 22px;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.upload-card.drop-active,
+.model-list-card.drop-active {
+  border-color: var(--accent);
+  background: rgba(37, 99, 235, 0.06);
 }
 
 .upload-card-title {
