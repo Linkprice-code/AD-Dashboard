@@ -2757,6 +2757,49 @@ function showUploadStatus(statusEl, message, type) {
   statusEl.hidden = false;
 }
 
+/* ---------------------------------------------------------
+   7-4. 파일 업로드 카드에 드래그 앤 드롭 지원
+   ---------------------------------------------------------
+   file input이 있는 업로드 폼(GFA/SA raw 업로드, 상품 매핑, 상품코드-모델명 매핑)
+   전부에 공통으로 붙인다. 카드 위로 파일을 끌어다 놓으면 그 input에 파일을
+   채워넣고 change 이벤트를 그대로 발생시켜서, 클릭으로 선택했을 때와 동일하게
+   동작하게 한다 (업로드 버튼은 여전히 눌러야 한다 - 실수로 잘못 끌어다 놓고
+   바로 올라가버리는 걸 방지).
+--------------------------------------------------------- */
+document.querySelectorAll(".upload-form").forEach((form) => {
+  const fileInput = form.querySelector('input[type="file"]');
+  if (!fileInput) return;
+
+  const dropZone = form.closest(".upload-card") || form.closest(".model-list-card") || form;
+
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropZone.addEventListener(evt, (e) => {
+      if (!e.dataTransfer?.types?.includes("Files")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add("drop-active");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((evt) => {
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.remove("drop-active");
+    });
+  });
+
+  dropZone.addEventListener("drop", (e) => {
+    const droppedFiles = e.dataTransfer?.files;
+    if (!droppedFiles || droppedFiles.length === 0) return;
+
+    const dt = new DataTransfer();
+    dt.items.add(droppedFiles[0]);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+});
+
 // CSV 템플릿 다운로드 링크 (정적 파일 없이 브라우저에서 즉석으로 생성)
 document.querySelectorAll("#view-upload .upload-template-link, #view-sa-upload .upload-template-link").forEach((link) => {
   const template = GFA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template] || SA_RAW_TYPE_TEMPLATE_CSV[link.dataset.template];
