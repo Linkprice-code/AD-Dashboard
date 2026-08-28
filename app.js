@@ -26,6 +26,7 @@ const SA_PRODUCT_MODEL_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functio
 const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
 const SA_BRAND_SEARCH_CONTRACT_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-brand-search-contract`;
 const SA_MANUAL_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-keyword-performance`;
+const SA_MANUAL_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-product-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -401,11 +402,50 @@ function fetchSaKeywordPerformanceAny(campaignType, opts) {
   return fetchSaKeywordPerformance(campaignType, opts);
 }
 
+// sa-product-performance(API 모드)의 수기 업로드 버전. sa_product_raw는 상품명이 아니라
+// 소재ID로 올라오기 때문에, sa-manual-product-performance가 sa_product_mapping(소재ID<->
+// 상품명, "상품별 데이터" 페이지에서 업로드)과 서버에서 조인해서 상품명 기준으로 합산해준다.
+async function fetchSaManualProductPerformance({ dateFrom, dateTo } = {}) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_MANUAL_PRODUCT_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ date_from: dateFrom, date_to: dateTo })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
 // state.saMode에 따라 API(sa-product-performance) 또는 수기 업로드
-// (sa_product_raw, gfa-performance 재사용)로 자동 분기한다.
+// (sa-manual-product-performance, 소재ID<->상품명 매핑 조인)로 자동 분기한다.
 function fetchSaProductPerformanceAny(opts) {
   if (state.saMode === "manual") {
-    return fetchGfaPerformance("sa_product", opts);
+    return fetchSaManualProductPerformance(opts);
   }
   return fetchSaProductPerformance(opts);
 }
@@ -1375,6 +1415,8 @@ async function renderSaOverview() {
 
   if (state.breakdownRawType === "campaign") {
     await loadSaBreakdownData();
+  } else if (state.breakdownRawType === "adgroup" && state.saMode === "manual") {
+    await loadSaAdgroupBreakdownData();
   } else {
     renderSaBreakdownPlaceholder();
   }
@@ -1544,6 +1586,8 @@ breakdownFilter.addEventListener("click", (e) => {
     loadBreakdownData();
   } else if (state.breakdownRawType === "campaign") {
     loadSaBreakdownData();
+  } else if (state.breakdownRawType === "adgroup" && state.saMode === "manual") {
+    loadSaAdgroupBreakdownData();
   } else {
     renderSaBreakdownPlaceholder();
   }
@@ -1606,7 +1650,37 @@ async function loadSaBreakdownData() {
   renderBreakdownRows();
 }
 
-// 그룹별(광고그룹) 단위는 아직 범위 밖이라 안내 문구만 보여준다.
+// 그룹별(광고그룹) 성과 - 수기 업로드 광고주(쉬어)는 SA 그룹 Raw(sa_adgroup_raw)에서
+// 가져온다. API 모드(홈앤힐)는 아직 그룹 단위 자동 동기화가 없어 안내 문구만 보여준다.
+async function loadSaAdgroupBreakdownData() {
+  const token = ++state.overviewRenderToken;
+  breakdownTableBody.innerHTML = '<tr><td colspan="9" class="grouped-empty">불러오는 중...</td></tr>';
+
+  const result = await fetchGfaPerformance("sa_adgroup", {
+    dateFrom: state.analysisPeriod.from,
+    dateTo: state.analysisPeriod.to
+  });
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!result.success) {
+    state.breakdownRows = [];
+    breakdownTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    updateSortIndicators();
+    return;
+  }
+
+  state.breakdownRows = result.rows;
+  if (result.rows.length === 0) {
+    breakdownTableBody.innerHTML =
+      '<tr><td colspan="9" class="grouped-empty">표시할 데이터가 없습니다. "SA 데이터 업로드" 메뉴에서 SA 그룹 Raw를 먼저 올려주세요.</td></tr>';
+    updateSortIndicators();
+    return;
+  }
+  renderBreakdownRows();
+}
+
+// 광고그룹별 단위는 API 모드(홈앤힐)에는 아직 없어 안내 문구만 보여준다.
 function renderSaBreakdownPlaceholder() {
   state.breakdownRows = [];
   breakdownTableBody.innerHTML =
@@ -1787,9 +1861,10 @@ brandSearchContractTableBody.addEventListener("click", async (e) => {
 --------------------------------------------------------- */
 async function renderModelView() {
   modelViewTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 상품별(모델별) 성과`;
-  // 상품 매핑 업로드는 API 자동 동기화용 보조 기능이라, 수기 업로드 광고주(sa_product_raw를
-  // 직접 올리는 쪽)에게는 필요 없다.
-  productMappingUploadCard.hidden = state.currentChannel !== "SA" || state.saMode === "manual";
+  // 상품 매핑(소재ID<->상품명) 업로드는 API 모드(sa-sync가 sa_product_mapping과 조인)와
+  // 수기 업로드 모드(sa-manual-product-performance가 sa_product_raw와 조인) 둘 다 필요하다 -
+  // 어느 쪽이든 네이버가 상품별 데이터를 소재ID로만 주기 때문.
+  productMappingUploadCard.hidden = state.currentChannel !== "SA";
   productModelMappingUploadCard.hidden = state.currentChannel !== "SA" || state.saMode === "manual";
   if (state.currentChannel === "GFA") {
     await renderGfaModelView();
@@ -2292,19 +2367,25 @@ const GFA_OPTIONAL_COLUMNS = {
 const SA_RAW_TYPE_COLUMNS = {
   sa_campaign: ["campaign_type", "campaign", "impressions", "clicks", "cost", "conversions", "revenue"],
   sa_keyword: ["campaign_type", "keyword", "impressions", "clicks", "cost", "conversions", "revenue"],
-  sa_product: ["product", "impressions", "clicks", "cost", "conversions", "revenue"]
+  // 상품 Raw는 네이버가 상품명이 아니라 소재ID로 주기 때문에, 소재ID를 필수로 받고
+  // 상품명은 "상품 매핑 파일 업로드"(sa_product_mapping)로 별도 매칭한다.
+  sa_product: ["naver_ad_id", "impressions", "clicks", "cost", "conversions", "revenue"],
+  // 그룹 Raw는 캠페인/캠페인유형 컬럼 없이 광고그룹명만 오고, 구간 합계가 아니라
+  // "일별" 컬럼으로 행마다 날짜가 따로 있다 (parseSaRawCsv가 자동으로 감지해서 처리).
+  sa_adgroup: ["ad_group", "impressions", "clicks", "cost", "conversions", "revenue"]
 };
 const SA_OPTIONAL_COLUMNS = {
   sa_keyword: ["campaign", "ad_group"],
-  sa_product: ["naver_ad_id"]
+  sa_product: ["product"],
+  sa_adgroup: ["campaign_type", "campaign"]
 };
 
 // 내부 필드명 -> 실제 CSV에 올 수 있는 헤더 이름 후보 (전부 소문자/trim 비교)
 const GFA_HEADER_ALIASES = {
-  date: ["date", "기간", "날짜", "일자"],
+  date: ["date", "기간", "날짜", "일자", "일별"],
   campaign: ["campaign", "캠페인 이름", "캠페인명", "캠페인"],
   campaign_type: ["campaign_type", "캠페인 목적", "캠페인 유형", "캠페인유형"],
-  ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명"],
+  ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명", "광고그룹"],
   product: ["product", "상품명", "상품 이름"],
   creative: ["creative", "소재 이름", "소재명", "소재"],
   keyword: ["keyword", "키워드", "키워드명", "검색어"],
@@ -2345,8 +2426,13 @@ const SA_RAW_TYPE_TEMPLATE_CSV = {
     "쇼핑검색,아기침대,5200,120,140000,3,320000\n",
   sa_product:
     '"쉬어 상품 raw(2026.07.01.~2026.08.23.)"\n' +
-    "상품명,노출수,클릭수,총비용,구매완료 전환수,구매완료 전환매출액(원)\n" +
-    "홈앤힐 아기침대,15200,320,540000,18,3200000\n"
+    "소재ID,노출수,클릭수,총비용,구매완료 전환수,구매완료 전환매출액(원)\n" +
+    "nad-a001-01-000000001234567,15200,320,540000,18,3200000\n",
+  // 그룹 Raw는 구간 합계가 아니라 "일별" 컬럼으로 행마다 날짜가 있다.
+  sa_adgroup:
+    '"쉬어 그룹 raw(2026.08.01.~2026.08.27.)"\n' +
+    "일별,광고그룹,노출수,클릭수,총비용,구매완료 전환수,구매완료 전환매출액(원)\n" +
+    "2026.08.01.,침대_키즈_로코_PC_검색,45,2,1192,0,0\n"
 };
 
 // SA 수기 업로드(sa_campaign/sa_keyword)의 campaign_type 값을 내부 코드로 정규화한다.
@@ -2487,9 +2573,13 @@ function parseGfaCsv(text, requiredColumns, optionalColumns = []) {
 }
 
 // 네이버 SA 실제 리포트 형식: 첫 줄에 "쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"처럼
-// 제목+기간이 있고, 그 다음 몇 줄 안에 진짜 헤더가 나온다 (GFA와 달리 행마다 날짜가
-// 없다 - 첫 줄의 기간 전체를 합친 데이터). 기간을 자동으로 읽어서 모든 행에 같은
-// date(시작일)/date_to(종료일)를 채워 넣는다.
+// 제목+기간이 있고, 그 다음 몇 줄 안에 진짜 헤더가 나온다. 리포트 종류에 따라 두 가지
+// 형태가 섞여 있다:
+//   1) 구간 합계형 (캠페인/키워드/상품 raw) - 행마다 날짜가 없다. 첫 줄의 기간 전체를
+//      합친 데이터라, 그 기간을 모든 행의 date(시작일)/date_to(종료일)로 채운다.
+//   2) 일별형 (그룹 raw) - "일별" 컬럼으로 행마다 날짜가 따로 있다. 이땐 그 날짜를
+//      그대로 date/date_to로 쓴다 (첫 줄의 기간은 참고용일 뿐, 무시한다).
+// 헤더에 날짜 컬럼(GFA_HEADER_ALIASES.date)이 있는지로 두 형태를 자동 판별한다.
 const SA_TITLE_DATE_RANGE_RE = /(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?\s*~\s*(\d{4})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?/;
 
 function parseSaRawCsv(text, requiredColumns, optionalColumns = []) {
@@ -2499,16 +2589,15 @@ function parseSaRawCsv(text, requiredColumns, optionalColumns = []) {
   }
 
   const titleMatch = lines[0].match(SA_TITLE_DATE_RANGE_RE);
-  if (!titleMatch) {
-    throw new Error(
-      '첫 줄에서 기간(예: "2026.07.01.~2026.08.23.")을 찾지 못했습니다. 네이버에서 다운로드한 파일을 수정 없이 그대로 올려주세요.'
-    );
-  }
-  const [, y1, m1, d1, y2, m2, d2] = titleMatch;
-  const dateFrom = `${y1}-${m1.padStart(2, "0")}-${d1.padStart(2, "0")}`;
-  const dateTo = `${y2}-${m2.padStart(2, "0")}-${d2.padStart(2, "0")}`;
-  if (dateFrom > dateTo) {
-    throw new Error("첫 줄의 기간이 올바르지 않습니다 (시작일이 종료일보다 늦습니다).");
+  let titleDateFrom = null;
+  let titleDateTo = null;
+  if (titleMatch) {
+    const [, y1, m1, d1, y2, m2, d2] = titleMatch;
+    titleDateFrom = `${y1}-${m1.padStart(2, "0")}-${d1.padStart(2, "0")}`;
+    titleDateTo = `${y2}-${m2.padStart(2, "0")}-${d2.padStart(2, "0")}`;
+    if (titleDateFrom > titleDateTo) {
+      throw new Error("첫 줄의 기간이 올바르지 않습니다 (시작일이 종료일보다 늦습니다).");
+    }
   }
 
   // 헤더 행 찾기: 제목 다음 몇 줄 안에서 "노출수"/"클릭수"에 해당하는 셀이 있는 첫 줄.
@@ -2528,6 +2617,13 @@ function parseSaRawCsv(text, requiredColumns, optionalColumns = []) {
   }
 
   const header = splitCsvLine(lines[headerIdx]).map((h) => h.trim().toLowerCase());
+
+  const dateColIdx = findColumnIndex(header, GFA_HEADER_ALIASES.date);
+  if (dateColIdx === -1 && !titleMatch) {
+    throw new Error(
+      '첫 줄에서 기간(예: "2026.07.01.~2026.08.23.")을 찾지 못했고, "일별"처럼 행마다 날짜가 있는 컬럼도 없습니다. 네이버에서 다운로드한 파일을 수정 없이 그대로 올려주세요.'
+    );
+  }
 
   const columnIndex = {};
   const missing = [];
@@ -2551,9 +2647,23 @@ function parseSaRawCsv(text, requiredColumns, optionalColumns = []) {
 
   const allFields = [...requiredColumns, ...optionalColumns];
 
-  return lines.slice(headerIdx + 1).map((line) => {
+  return lines.slice(headerIdx + 1).map((line, i) => {
     const cells = splitCsvLine(line);
-    const row = { date: dateFrom, date_to: dateTo };
+
+    let rowDate;
+    let rowDateTo;
+    if (dateColIdx !== -1) {
+      rowDate = normalizeGfaDate((cells[dateColIdx] ?? "").trim());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(rowDate)) {
+        throw new Error(`${i + 1}번째 행: 날짜 형식을 알아볼 수 없습니다 ("${cells[dateColIdx]}").`);
+      }
+      rowDateTo = rowDate;
+    } else {
+      rowDate = titleDateFrom;
+      rowDateTo = titleDateTo;
+    }
+
+    const row = { date: rowDate, date_to: rowDateTo };
 
     allFields.forEach((field) => {
       if (!(field in columnIndex)) return; // optional인데 이 파일엔 없는 컬럼
