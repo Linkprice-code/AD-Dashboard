@@ -660,6 +660,9 @@ const analysisConfirmBtn = document.getElementById("analysisConfirmBtn");
 const analysisThisMonthBtn = document.getElementById("analysisThisMonthBtn");
 const analysisAllYearBtn = document.getElementById("analysisAllYearBtn");
 const analysisResetBtn = document.getElementById("analysisResetBtn");
+const analysisCustomFrom = document.getElementById("analysisCustomFrom");
+const analysisCustomTo = document.getElementById("analysisCustomTo");
+const analysisCustomConfirmBtn = document.getElementById("analysisCustomConfirmBtn");
 
 const compareYearSelect = document.getElementById("compareYearSelect");
 const compareMonthSelect = document.getElementById("compareMonthSelect");
@@ -667,6 +670,9 @@ const compareWeekSelect = document.getElementById("compareWeekSelect");
 const compareDaySelect = document.getElementById("compareDaySelect");
 const compareConfirmBtn = document.getElementById("compareConfirmBtn");
 const compareResetBtn = document.getElementById("compareResetBtn");
+const compareCustomFrom = document.getElementById("compareCustomFrom");
+const compareCustomTo = document.getElementById("compareCustomTo");
+const compareCustomConfirmBtn = document.getElementById("compareCustomConfirmBtn");
 
 const viewModel = document.getElementById("view-model");
 const modelViewTitle = document.getElementById("modelViewTitle");
@@ -1215,6 +1221,8 @@ function showDashboard(advertiser) {
   const compareDate = new Date(`${state.comparisonPeriod.from}T00:00:00`);
   setPickerToMonth(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect, compareDate.getFullYear(), compareDate.getMonth() + 1);
 
+  syncCustomPeriodInputs();
+
   applyChannelVisibility();
   renderSidebarMenu();
   switchView("overview");
@@ -1260,8 +1268,18 @@ analysisWeekSelect.addEventListener("change", () => {
 analysisDaySelect.addEventListener("change", () => {
   if (analysisDaySelect.value) analysisWeekSelect.value = "";
 });
+// 연/월/주/일 드롭다운이나 바로가기로 기간이 바뀌어도, 직접 기간 선택 입력칸이
+// 지금 실제로 적용된 기간을 그대로 보여주도록 맞춰준다.
+function syncCustomPeriodInputs() {
+  analysisCustomFrom.value = state.analysisPeriod.from;
+  analysisCustomTo.value = state.analysisPeriod.to;
+  compareCustomFrom.value = state.comparisonPeriod.from;
+  compareCustomTo.value = state.comparisonPeriod.to;
+}
+
 analysisConfirmBtn.addEventListener("click", () => {
   state.analysisPeriod = readPickerRange(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect);
+  syncCustomPeriodInputs();
   refreshCurrentPeriodView();
 });
 
@@ -1279,6 +1297,30 @@ compareDaySelect.addEventListener("change", () => {
 });
 compareConfirmBtn.addEventListener("click", () => {
   state.comparisonPeriod = readPickerRange(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect);
+  syncCustomPeriodInputs();
+  refreshCurrentPeriodView();
+});
+
+// 직접 기간 선택 - 연/월/주/일 드롭다운으로는 "하루", "그 주", "그 달"처럼 미리 정해진
+// 단위만 고를 수 있어서, "8/1~8/2" 이틀만 보거나 "7~9월" 처럼 달 경계와 상관없이
+// 원하는 범위를 그대로 보고 싶을 때 여기 두 날짜를 직접 입력해서 쓴다.
+analysisCustomConfirmBtn.addEventListener("click", () => {
+  if (!analysisCustomFrom.value || !analysisCustomTo.value) return;
+  if (analysisCustomFrom.value > analysisCustomTo.value) {
+    alert("시작일이 종료일보다 늦을 수 없습니다.");
+    return;
+  }
+  state.analysisPeriod = { from: analysisCustomFrom.value, to: analysisCustomTo.value };
+  refreshCurrentPeriodView();
+});
+
+compareCustomConfirmBtn.addEventListener("click", () => {
+  if (!compareCustomFrom.value || !compareCustomTo.value) return;
+  if (compareCustomFrom.value > compareCustomTo.value) {
+    alert("시작일이 종료일보다 늦을 수 없습니다.");
+    return;
+  }
+  state.comparisonPeriod = { from: compareCustomFrom.value, to: compareCustomTo.value };
   refreshCurrentPeriodView();
 });
 
@@ -1287,17 +1329,20 @@ analysisThisMonthBtn.addEventListener("click", () => {
   const now = new Date();
   setPickerToMonth(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect, now.getFullYear(), now.getMonth() + 1);
   state.analysisPeriod = monthsToRange(now.getFullYear(), now.getMonth() + 1, now.getMonth() + 1);
+  syncCustomPeriodInputs();
   refreshCurrentPeriodView();
 });
 analysisAllYearBtn.addEventListener("click", () => {
   const year = Number(analysisYearSelect.value);
   state.analysisPeriod = monthsToRange(year, 1, 12);
+  syncCustomPeriodInputs();
   refreshCurrentPeriodView();
 });
 analysisResetBtn.addEventListener("click", () => {
   const now = new Date();
   setPickerToMonth(analysisYearSelect, analysisMonthSelect, analysisWeekSelect, analysisDaySelect, now.getFullYear(), now.getMonth() + 1);
   state.analysisPeriod = monthsToRange(now.getFullYear(), now.getMonth() + 1, now.getMonth() + 1);
+  syncCustomPeriodInputs();
   refreshCurrentPeriodView();
 });
 
@@ -1306,6 +1351,7 @@ compareResetBtn.addEventListener("click", () => {
   state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
   const d = new Date(`${state.comparisonPeriod.from}T00:00:00`);
   setPickerToMonth(compareYearSelect, compareMonthSelect, compareWeekSelect, compareDaySelect, d.getFullYear(), d.getMonth() + 1);
+  syncCustomPeriodInputs();
   refreshCurrentPeriodView();
 });
 
