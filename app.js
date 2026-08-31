@@ -28,6 +28,9 @@ const SA_BRAND_SEARCH_CONTRACT_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/s
 const SA_CONVERSION_OVERRIDE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-conversion-override`;
 const SA_MANUAL_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-keyword-performance`;
 const SA_MANUAL_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-product-performance`;
+// 이베이/11번가처럼 API 연동 없이 수기 업로드로만 운영하는 채널(문성전자 전용) - 성과 조회/업로드.
+const CHANNEL_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/channel-performance`;
+const CHANNEL_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/channel-upload`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
 
 /* ---------------------------------------------------------
@@ -47,7 +50,11 @@ const MENU_ITEMS = [
   { id: "creative", label: "소재별 성과", channels: ["GFA"], gfaRawType: "creative" },
   { id: "upload", label: "데이터 업로드", channels: ["GFA"] },
   // SA API 연동이 없는 광고주(naver_api_customer_id 없음, 예: 쉬어)에게만 보인다.
-  { id: "sa-upload", label: "SA 데이터 업로드", channels: ["SA"], requiresSaManual: true }
+  { id: "sa-upload", label: "SA 데이터 업로드", channels: ["SA"], requiresSaManual: true },
+  // 이베이/11번가 - API 연동 없이 CSV 수기 업로드만 하는 채널(문성전자 전용).
+  // enabled_channels에 EBAY/ELEVENST가 있는 광고주에게만 채널 탭 자체가 보인다.
+  { id: "channel-overview", label: "성과 대시보드", channels: ["EBAY", "ELEVENST"] },
+  { id: "channel-upload", label: "데이터 업로드", channels: ["EBAY", "ELEVENST"] }
 ];
 
 // raw_type -> "이름" 컬럼 헤더에 쓸 표시명
@@ -71,7 +78,9 @@ const GFA_CAMPAIGN_TYPE_ORDER = ["웹사이트 전환", "인지도 및 트래픽
 --------------------------------------------------------- */
 const CHANNEL_LABELS = {
   SA: "SA",
-  GFA: "GFA"
+  GFA: "GFA",
+  EBAY: "이베이",
+  ELEVENST: "11번가"
 };
 
 // sa-performance가 group_by="type"로 돌려주는 네이버 캠페인 유형 코드 <-> 캠페인 유형별
@@ -80,6 +89,13 @@ const SA_CAMPAIGN_TYPE_TO_NAVER = {
   powerlink: "WEB_SITE",
   shopping: "SHOPPING",
   brand: "BRAND_SEARCH"
+};
+
+// 이베이/11번가 - 채널별 허용 광고 유형 (channel-upload/channel-performance Edge Function과
+// 동일한 목록을 프론트에도 둔다. "광고 유형별 성과" 표의 고정 행 순서로도 쓴다).
+const CHANNEL_AD_TYPES = {
+  EBAY: ["통합운영형", "집중운영형", "직접운영형"],
+  ELEVENST: ["포커스클릭", "AI캠페인", "전시입찰광고"]
 };
 
 // 상품 카테고리별 뱃지 색상 (현재는 카테고리를 넘겨주는 데이터가 없어 항상 기본색으로
@@ -256,6 +272,90 @@ async function fetchGfaPerformance(rawType, { dateFrom, dateTo, campaign } = {})
 
   if (!res.ok || !payload.success) {
     return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
+/* ---------------------------------------------------------
+   4-1a. 이베이/11번가(EBAY/ELEVENST) 성과 조회 / 업로드
+   ---------------------------------------------------------
+   SA/GFA와 별개로, API 연동 없이 CSV 수기 업로드만 하는 채널(문성전자 전용).
+   ad_performance 테이블을 channel-performance/channel-upload Edge Function으로 조회/저장한다.
+--------------------------------------------------------- */
+async function fetchChannelPerformance(channel, groupBy, { dateFrom, dateTo, adType } = {}) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(CHANNEL_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({
+        channel,
+        group_by: groupBy,
+        date_from: dateFrom,
+        date_to: dateTo,
+        ad_type: adType
+      })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
+async function uploadChannelData(channel, adType, rows) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(CHANNEL_UPLOAD_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify({ channel, ad_type: adType, rows })
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "업로드에 실패했습니다." };
   }
 
   return payload;
@@ -653,8 +753,14 @@ function fetchConversionOverrides() {
   return callConversionOverride({ action: "list" });
 }
 
-function saveConversionOverride(date, conversions) {
-  return callConversionOverride({ action: "save", date, conversions });
+function saveConversionOverride(date, campaignType, conversions) {
+  return callConversionOverride({ action: "save", date, campaign_type: campaignType, conversions });
+}
+
+// rows: [{date, campaign_type, conversions}] - "캠페인 유형별 구매완료수 보고서" 업로드용.
+// 매번 전체 스냅샷으로 그 광고주의 기존 보정값을 통째로 교체한다.
+function bulkSaveConversionOverrides(rows) {
+  return callConversionOverride({ action: "bulk_save", rows });
 }
 
 function deleteConversionOverride(id) {
@@ -700,6 +806,16 @@ const groupedTableBody = document.getElementById("groupedTableBody");
 
 const viewUpload = document.getElementById("view-upload");
 const viewSaUpload = document.getElementById("view-sa-upload");
+
+const viewChannelOverview = document.getElementById("view-channel-overview");
+const channelOverviewTitle = document.getElementById("channelOverviewTitle");
+const channelOverviewEmptyNotice = document.getElementById("channelOverviewEmptyNotice");
+const channelKpiGrid = document.getElementById("channelKpiGrid");
+const channelAdTypeTableBody = document.getElementById("channelAdTypeTableBody");
+const channelCampaignTableBody = document.getElementById("channelCampaignTableBody");
+
+const viewChannelUpload = document.getElementById("view-channel-upload");
+const channelUploadTitle = document.getElementById("channelUploadTitle");
 
 const viewTrend = document.getElementById("view-trend");
 const trendTitle = document.getElementById("trendTitle");
@@ -776,9 +892,13 @@ const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
 const conversionOverrideCard = document.getElementById("conversionOverrideCard");
 const conversionOverrideForm = document.getElementById("conversionOverrideForm");
 const conversionOverrideDate = document.getElementById("conversionOverrideDate");
+const conversionOverrideType = document.getElementById("conversionOverrideType");
 const conversionOverrideValue = document.getElementById("conversionOverrideValue");
 const conversionOverrideStatus = document.getElementById("conversionOverrideStatus");
 const conversionOverrideTableBody = document.getElementById("conversionOverrideTableBody");
+const conversionOverrideUploadForm = document.getElementById("conversionOverrideUploadForm");
+const conversionOverrideFileInput = document.getElementById("conversionOverrideFileInput");
+const conversionOverrideUploadStatus = document.getElementById("conversionOverrideUploadStatus");
 
 const campaignTypeSection = document.getElementById("campaignTypeSection");
 const campaignTypeFilter = document.getElementById("campaignTypeFilter");
@@ -802,6 +922,8 @@ const breakdownNameHeader = document.getElementById("breakdownNameHeader");
 const state = {
   charts: {},
   currentChannel: "SA",
+  // 로그인한 광고주에게 보여줄 채널 탭 목록. showDashboard()에서 advertiser.enabled_channels로 정해진다.
+  enabledChannels: ["SA", "GFA"],
   // "api" = sa-sync 자동 동기화(네이버 API), "manual" = sa_campaign_raw 등 수기 업로드.
   // showDashboard()에서 로그인 응답의 advertiser.sa_manual로 정해진다.
   saMode: "api",
@@ -1278,6 +1400,14 @@ function showDashboard(advertiser) {
 
   advertiserNameEl.textContent = advertiser.name;
   state.saMode = advertiser.sa_manual ? "manual" : "api";
+  state.enabledChannels = advertiser.enabled_channels || ["SA", "GFA"];
+  state.currentChannel = "SA";
+  channelSwitch.querySelectorAll(".channel-tab").forEach((btn) => {
+    const isActive = btn.dataset.channel === "SA";
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-selected", String(isActive));
+  });
+  applyEnabledChannelsVisibility();
 
   state.analysisPeriod = defaultAnalysisPeriod();
   state.comparisonPeriod = computeComparisonPeriod(state.analysisPeriod.from, state.analysisPeriod.to);
@@ -1427,6 +1557,14 @@ compareResetBtn.addEventListener("click", () => {
 // ADVoost 쇼핑은 GFA 전용 - SA에서는 탭 자체를 숨기고, 그 탭이 선택된
 // 상태로 SA로 넘어왔으면 캠페인별로 되돌린다. 채널 전환 시뿐 아니라
 // 최초 로그인 시(SA가 기본값)에도 반영되어야 하므로 함수로 분리한다.
+// 로그인한 광고주(advertiser.enabled_channels)에게 허용된 채널 탭만 보여준다.
+// 문성전자처럼 EBAY/ELEVENST가 추가된 광고주가 아니면 그 탭 자체가 DOM에서 숨겨진다.
+function applyEnabledChannelsVisibility() {
+  channelSwitch.querySelectorAll(".channel-tab").forEach((btn) => {
+    btn.hidden = !state.enabledChannels.includes(btn.dataset.channel);
+  });
+}
+
 function applyChannelVisibility() {
   const isGfa = state.currentChannel === "GFA";
   breakdownFilter.querySelectorAll(".gfa-only-tab").forEach((btn) => {
@@ -1737,6 +1875,105 @@ async function renderGfaOverview() {
   renderGfaCampaignTypeRows(campaignTypeResult.success ? campaignTypeResult.rows : []);
 
   await loadBreakdownData();
+}
+
+/* ---------------------------------------------------------
+   6-2z. 이베이/11번가(EBAY/ELEVENST) 성과 대시보드
+   ---------------------------------------------------------
+   GFA와 비슷하지만 훨씬 단순한 구조 - KPI + 광고 유형별 성과(고정 3행) +
+   캠페인별 성과, 이렇게 두 표만 보여준다(상품/모델 분석 없음). SA/GFA 전용
+   DOM(#view-overview 안의 여러 섹션)은 전혀 건드리지 않고, 별도 뷰(#view-channel-overview)를 쓴다.
+--------------------------------------------------------- */
+async function renderChannelOverview() {
+  const channel = state.currentChannel;
+  const token = ++state.overviewRenderToken;
+
+  channelOverviewTitle.textContent = `${CHANNEL_LABELS[channel]} 성과 대시보드`;
+  periodLabel.textContent = formatPeriodRange(state.analysisPeriod);
+
+  const { from, to } = state.analysisPeriod;
+  const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
+
+  const [currentResult, comparisonResult, adTypeResult] = await Promise.all([
+    fetchChannelPerformance(channel, "campaign", { dateFrom: from, dateTo: to }),
+    fetchChannelPerformance(channel, "campaign", { dateFrom: compareFrom, dateTo: compareTo }),
+    fetchChannelPerformance(channel, "ad_type", { dateFrom: from, dateTo: to })
+  ]);
+
+  if (token !== state.overviewRenderToken) return;
+
+  if (!currentResult.success) {
+    channelOverviewEmptyNotice.hidden = false;
+    channelOverviewEmptyNotice.textContent = currentResult.message;
+    renderKpiCards(withDerivedMetrics({ impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }), null, channelKpiGrid);
+    renderChannelAdTypeRows(channel, []);
+    channelCampaignTableBody.innerHTML = `<tr><td colspan="9" class="grouped-empty">${escapeHtml(currentResult.message)}</td></tr>`;
+    return;
+  }
+
+  const currentTotals = sumRawTotals(currentResult.rows);
+  const comparisonTotals = comparisonResult.success ? sumRawTotals(comparisonResult.rows) : null;
+  const hasData = currentResult.rows.length > 0;
+
+  channelOverviewEmptyNotice.hidden = hasData;
+  if (!hasData) {
+    channelOverviewEmptyNotice.textContent =
+      `표시할 데이터가 없습니다. "데이터 업로드" 메뉴에서 ${CHANNEL_LABELS[channel]} CSV를 먼저 업로드해주세요.`;
+  }
+
+  renderKpiCards(
+    withDerivedMetrics(currentTotals),
+    comparisonTotals ? withDerivedMetrics(comparisonTotals) : null,
+    channelKpiGrid
+  );
+
+  renderChannelAdTypeRows(channel, adTypeResult.success ? adTypeResult.rows : []);
+
+  channelCampaignTableBody.innerHTML = currentResult.rows.length
+    ? currentResult.rows
+        .map(
+          (row) => `
+        <tr>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${formatWon(row.cost)}</td>
+          <td>${formatWon(row.revenue)}</td>
+          <td>${row.roas}%</td>
+          <td>${formatNumber(row.clicks)}</td>
+          <td>${row.ctr.toFixed(2)}%</td>
+          <td>${formatNumber(row.conversions)}</td>
+          <td>${row.cvr.toFixed(2)}%</td>
+          <td>${formatWon(row.cpa)}</td>
+        </tr>
+      `
+        )
+        .join("")
+    : `<tr><td colspan="9" class="grouped-empty">표시할 데이터가 없습니다.</td></tr>`;
+}
+
+// CHANNEL_AD_TYPES에 정의된 순서 그대로 3행 고정 - 데이터가 없는 유형도 0으로 표시한다.
+function renderChannelAdTypeRows(channel, rows) {
+  const byName = new Map(rows.map((r) => [r.name, r]));
+  const order = CHANNEL_AD_TYPES[channel] || [];
+  const zero = { cost: 0, revenue: 0, roas: 0, clicks: 0, ctr: 0, conversions: 0, cvr: 0, cpa: 0 };
+
+  channelAdTypeTableBody.innerHTML = order
+    .map((type) => {
+      const data = byName.get(type) || zero;
+      return `
+        <tr>
+          <td>${escapeHtml(type)}</td>
+          <td>${formatWon(data.cost)}</td>
+          <td>${formatWon(data.revenue)}</td>
+          <td>${data.roas}%</td>
+          <td>${formatNumber(data.clicks)}</td>
+          <td>${data.ctr.toFixed(2)}%</td>
+          <td>${formatNumber(data.conversions)}</td>
+          <td>${data.cvr.toFixed(2)}%</td>
+          <td>${formatWon(data.cpa)}</td>
+        </tr>
+      `;
+    })
+    .join("");
 }
 
 /* ---------------------------------------------------------
@@ -2077,20 +2314,26 @@ brandSearchContractTableBody.addEventListener("click", async (e) => {
    6-1d. SA 구매완료수 보정값 (네이버 API 전환수가 화면 값과 달라서 직접 입력)
 --------------------------------------------------------- */
 async function loadConversionOverrides() {
-  conversionOverrideTableBody.innerHTML = '<tr><td colspan="3" class="grouped-empty">불러오는 중...</td></tr>';
+  conversionOverrideTableBody.innerHTML = '<tr><td colspan="4" class="grouped-empty">불러오는 중...</td></tr>';
   const result = await fetchConversionOverrides();
   if (!result.success) {
-    conversionOverrideTableBody.innerHTML = `<tr><td colspan="3" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    conversionOverrideTableBody.innerHTML = `<tr><td colspan="4" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
     return;
   }
   state.conversionOverrideRows = result.rows;
   renderConversionOverrideTable();
 }
 
+const CONVERSION_OVERRIDE_TYPE_LABEL = {
+  WEB_SITE: "파워링크",
+  SHOPPING: "쇼핑검색",
+  BRAND_SEARCH: "브랜드검색"
+};
+
 function renderConversionOverrideTable() {
   const rows = state.conversionOverrideRows;
   if (rows.length === 0) {
-    conversionOverrideTableBody.innerHTML = '<tr><td colspan="3" class="grouped-empty">입력된 보정값이 없습니다.</td></tr>';
+    conversionOverrideTableBody.innerHTML = '<tr><td colspan="4" class="grouped-empty">입력된 보정값이 없습니다.</td></tr>';
     return;
   }
 
@@ -2099,6 +2342,7 @@ function renderConversionOverrideTable() {
       (r) => `
         <tr>
           <td>${r.date}</td>
+          <td>${CONVERSION_OVERRIDE_TYPE_LABEL[r.campaign_type] || r.campaign_type}</td>
           <td>${formatNumber(r.conversions)}건</td>
           <td><button type="button" class="contract-delete-btn" data-id="${r.id}">삭제</button></td>
         </tr>
@@ -2111,6 +2355,7 @@ conversionOverrideForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const date = conversionOverrideDate.value;
+  const campaignType = conversionOverrideType.value;
   const conversions = Number(conversionOverrideValue.value);
 
   conversionOverrideStatus.hidden = true;
@@ -2119,7 +2364,7 @@ conversionOverrideForm.addEventListener("submit", async (e) => {
   const originalLabel = submitBtn.textContent;
   submitBtn.textContent = "저장 중...";
 
-  const result = await saveConversionOverride(date, conversions);
+  const result = await saveConversionOverride(date, campaignType, conversions);
 
   submitBtn.disabled = false;
   submitBtn.textContent = originalLabel;
@@ -2133,6 +2378,47 @@ conversionOverrideForm.addEventListener("submit", async (e) => {
   conversionOverrideForm.reset();
   await loadConversionOverrides();
   if (state.currentView === "overview") refreshCurrentPeriodView();
+});
+
+conversionOverrideUploadForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const file = conversionOverrideFileInput.files[0];
+  if (!file) return;
+
+  conversionOverrideUploadStatus.hidden = true;
+  const submitBtn = conversionOverrideUploadForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = "업로드 중...";
+
+  try {
+    const text = await readUploadFileAsCsvText(file);
+    let rows = parseSaRawCsv(text, ["campaign_type", "conversions"], []);
+    rows = normalizeSaCampaignTypeRows(rows);
+    // parseSaRawCsv는 모든 raw_type에 date_to를 채워주는데(캠페인/키워드 raw와
+    // 공용 로직), 보정값에는 필요 없는 필드라 그냥 date/campaign_type/conversions만 쓴다.
+    rows = rows.map((r) => ({ date: r.date, campaign_type: r.campaign_type, conversions: r.conversions }));
+
+    if (rows.length === 0) {
+      throw new Error("업로드할 데이터가 없습니다.");
+    }
+
+    const result = await bulkSaveConversionOverrides(rows);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    showUploadStatus(conversionOverrideUploadStatus, `업로드 완료: ${result.inserted}건 저장`, "success");
+    conversionOverrideUploadForm.reset();
+    await loadConversionOverrides();
+    if (state.currentView === "overview") refreshCurrentPeriodView();
+  } catch (err) {
+    showUploadStatus(conversionOverrideUploadStatus, err.message || "업로드 중 오류가 발생했습니다.", "error");
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalLabel;
+  }
 });
 
 conversionOverrideTableBody.addEventListener("click", async (e) => {
@@ -2532,9 +2818,11 @@ function switchView(viewId) {
 function renderCurrentView() {
   let item = MENU_ITEMS.find((m) => m.id === state.currentView);
 
-  // 지금 채널의 사이드바에 없는 메뉴면(예: SA에서 GFA 전용 메뉴) 성과 대시보드로 되돌린다.
+  // 지금 채널의 사이드바에 없는 메뉴면(예: SA에서 GFA 전용 메뉴) 그 채널의 첫 메뉴로 되돌린다.
+  // (SA/GFA는 둘 다 MENU_ITEMS[0]="overview"에 포함돼있어 항상 그걸로 되돌아갔지만,
+  // EBAY/ELEVENST는 "overview"에 없으므로 그 채널이 실제로 가진 첫 메뉴를 찾아야 한다.)
   if (!item || !item.channels.includes(state.currentChannel)) {
-    item = MENU_ITEMS[0];
+    item = MENU_ITEMS.find((m) => m.channels.includes(state.currentChannel)) || MENU_ITEMS[0];
     state.currentView = item.id;
   }
 
@@ -2549,6 +2837,8 @@ function renderCurrentView() {
   viewGrouped.hidden = true;
   viewUpload.hidden = true;
   viewSaUpload.hidden = true;
+  viewChannelOverview.hidden = true;
+  viewChannelUpload.hidden = true;
   viewPlaceholder.hidden = true;
 
   const isGfa = state.currentChannel === "GFA";
@@ -2563,6 +2853,12 @@ function renderCurrentView() {
     viewUpload.hidden = false;
   } else if (item.id === "sa-upload") {
     viewSaUpload.hidden = false;
+  } else if (item.id === "channel-overview") {
+    viewChannelOverview.hidden = false;
+    renderChannelOverview();
+  } else if (item.id === "channel-upload") {
+    viewChannelUpload.hidden = false;
+    applyChannelUploadCardVisibility();
   } else if (item.id === "product") {
     viewModel.hidden = false;
     renderModelView();
@@ -2743,6 +3039,7 @@ const SA_CAMPAIGN_TYPE_ALIASES = {
   "쇼핑검색": "SHOPPING",
   "SHOPPING": "SHOPPING",
   "브랜드검색": "BRAND_SEARCH",
+  "브랜드검색/신제품검색": "BRAND_SEARCH",
   "BRAND_SEARCH": "BRAND_SEARCH"
 };
 
@@ -2906,7 +3203,9 @@ function parseSaRawCsv(text, requiredColumns, optionalColumns = []) {
     const cells = splitCsvLine(lines[i]).map((c) => c.trim().toLowerCase());
     const hasImpressions = GFA_HEADER_ALIASES.impressions.some((a) => cells.includes(a));
     const hasClicks = GFA_HEADER_ALIASES.clicks.some((a) => cells.includes(a));
-    if (hasImpressions || hasClicks) {
+    // 구매완료수 보정값 리포트처럼 노출수/클릭수 없이 전환수만 있는 파일도 있다.
+    const hasConversions = GFA_HEADER_ALIASES.conversions.some((a) => cells.includes(a));
+    if (hasImpressions || hasClicks || hasConversions) {
       headerIdx = i;
       break;
     }
@@ -3105,6 +3404,122 @@ document.querySelectorAll("#view-upload .upload-template-link, #view-sa-upload .
   if (template) {
     link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(template);
   }
+});
+
+/* ---------------------------------------------------------
+   7-2z. 이베이/11번가(EBAY/ELEVENST) 데이터 업로드
+   ---------------------------------------------------------
+   외부 플랫폼마다 리포트 형식이 제각각이라 GFA/SA처럼 원본 CSV를 그대로
+   파싱하지 않고, 우리가 정한 단순한 7컬럼 템플릿(날짜/캠페인/노출수/클릭수/
+   광고비/전환수/전환매출)만 받는다. 한글/영문 헤더 둘 다 허용한다.
+--------------------------------------------------------- */
+const CHANNEL_UPLOAD_TEMPLATE_CSV =
+  "date,campaign,impressions,clicks,cost,conversions,revenue\n" +
+  "2026-08-01,여름신상프로모션,15200,320,540000,18,3200000\n";
+
+const CHANNEL_UPLOAD_FIELD_ALIASES = {
+  date: ["date", "날짜"],
+  campaign: ["campaign", "캠페인", "캠페인명"],
+  impressions: ["impressions", "노출수"],
+  clicks: ["clicks", "클릭수"],
+  cost: ["cost", "광고비", "총비용", "비용"],
+  conversions: ["conversions", "전환수", "구매완료수", "구매완료 수"],
+  revenue: ["revenue", "전환매출", "전환매출액", "매출"]
+};
+
+function parseChannelUploadCsv(text) {
+  const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
+  if (lines.length < 2) {
+    throw new Error("업로드할 데이터가 없습니다.");
+  }
+
+  const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+  const columnIndex = {};
+  for (const field of Object.keys(CHANNEL_UPLOAD_FIELD_ALIASES)) {
+    const idx = findColumnIndex(header, CHANNEL_UPLOAD_FIELD_ALIASES[field]);
+    if (idx !== -1) columnIndex[field] = idx;
+  }
+
+  if (columnIndex.date === undefined || columnIndex.campaign === undefined) {
+    throw new Error('CSV에서 "날짜"/"캠페인" 컬럼을 찾지 못했습니다. 템플릿을 다운로드해서 형식을 맞춰주세요.');
+  }
+
+  return lines
+    .slice(1)
+    .map((line) => {
+      const cells = splitCsvLine(line);
+      const row = {
+        date: normalizeGfaDate((cells[columnIndex.date] ?? "").trim()),
+        campaign: (cells[columnIndex.campaign] ?? "").trim()
+      };
+      ["impressions", "clicks", "cost", "conversions", "revenue"].forEach((field) => {
+        row[field] = columnIndex[field] !== undefined ? toGfaNumber(cells[columnIndex[field]]) : 0;
+      });
+      return row;
+    })
+    .filter((row) => row.date && row.campaign);
+}
+
+// 지금 채널(EBAY/ELEVENST)에 해당하는 업로드 카드만 보여준다 - 나머지 채널의
+// 광고 유형 카드는 DOM에 있지만 숨긴다.
+function applyChannelUploadCardVisibility() {
+  channelUploadTitle.textContent = `${CHANNEL_LABELS[state.currentChannel]} 데이터 업로드`;
+  document.querySelectorAll(".channel-upload-card").forEach((card) => {
+    card.hidden = card.dataset.channel !== state.currentChannel;
+  });
+}
+
+document.querySelectorAll(".channel-upload-form").forEach((form) => {
+  const channel = form.dataset.channel;
+  const adType = form.dataset.adType;
+  const fileInput = form.querySelector(".upload-file-input");
+  const statusEl = form.closest(".channel-upload-card").querySelector(".upload-status");
+  const submitBtn = form.querySelector("button[type=submit]");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    statusEl.hidden = true;
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = "업로드 중...";
+
+    try {
+      const text = await readUploadFileAsCsvText(file);
+      const rows = parseChannelUploadCsv(text);
+
+      if (rows.length === 0) {
+        throw new Error("업로드할 데이터가 없습니다.");
+      }
+      if (rows.length > GFA_MAX_UPLOAD_ROWS) {
+        throw new Error(`한 번에 최대 ${GFA_MAX_UPLOAD_ROWS}행까지 업로드할 수 있습니다.`);
+      }
+
+      const result = await uploadChannelData(channel, adType, rows);
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      showUploadStatus(
+        statusEl,
+        `업로드 완료: ${result.inserted}건 저장 (${result.dates_replaced.length}개 날짜 갱신)`,
+        "success"
+      );
+      form.reset();
+    } catch (err) {
+      showUploadStatus(statusEl, err.message || "업로드 중 오류가 발생했습니다.", "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+    }
+  });
+});
+
+document.querySelectorAll("#view-channel-upload .upload-template-link").forEach((link) => {
+  link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(CHANNEL_UPLOAD_TEMPLATE_CSV);
 });
 
 /* ---------------------------------------------------------
@@ -3313,8 +3728,8 @@ const KPI_DEFS = [
   { key: "cpa", label: "전환당비용", format: formatWon }
 ];
 
-function renderKpiCards(current, comparison) {
-  kpiGrid.innerHTML = "";
+function renderKpiCards(current, comparison, targetGrid = kpiGrid) {
+  targetGrid.innerHTML = "";
   KPI_DEFS.forEach((def) => {
     const card = document.createElement("div");
     card.className = "kpi-card";
@@ -3323,7 +3738,7 @@ function renderKpiCards(current, comparison) {
       <span class="kpi-value">${def.format(current[def.key])}</span>
       ${comparison ? buildDeltaHtml(current[def.key], comparison[def.key]) : ""}
     `;
-    kpiGrid.appendChild(card);
+    targetGrid.appendChild(card);
   });
 }
 
