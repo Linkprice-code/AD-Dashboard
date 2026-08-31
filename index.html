@@ -199,6 +199,16 @@
 
       <div class="period-picker-row">
         <div class="period-picker">
+          <span class="period-label">직접 기간 선택 (일/월 상관없이 원하는 범위)</span>
+          <input type="date" id="analysisCustomFrom" class="period-select">
+          <span class="contract-tilde">~</span>
+          <input type="date" id="analysisCustomTo" class="period-select">
+          <button type="button" id="analysisCustomConfirmBtn" class="period-confirm-btn">확인</button>
+        </div>
+      </div>
+
+      <div class="period-picker-row">
+        <div class="period-picker">
           <span class="period-label">비교 기간 선택</span>
           <select id="compareYearSelect" class="period-select"></select>
           <select id="compareMonthSelect" class="period-select"></select>
@@ -208,6 +218,16 @@
         </div>
         <div class="period-shortcuts">
           <button type="button" id="compareResetBtn" class="period-shortcut-btn">비교 초기화</button>
+        </div>
+      </div>
+
+      <div class="period-picker-row">
+        <div class="period-picker">
+          <span class="period-label">직접 기간 선택 (일/월 상관없이 원하는 범위)</span>
+          <input type="date" id="compareCustomFrom" class="period-select">
+          <span class="contract-tilde">~</span>
+          <input type="date" id="compareCustomTo" class="period-select">
+          <button type="button" id="compareCustomConfirmBtn" class="period-confirm-btn">확인</button>
         </div>
       </div>
     </div>
