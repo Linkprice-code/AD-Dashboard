@@ -51,6 +51,8 @@ const MENU_ITEMS = [
   { id: "upload", label: "데이터 업로드", channels: ["GFA"] },
   // SA API 연동이 없는 광고주(naver_api_customer_id 없음, 예: 쉬어)에게만 보인다.
   { id: "sa-upload", label: "SA 데이터 업로드", channels: ["SA"], requiresSaManual: true },
+  // SA API 연동 광고주(naver_api_customer_id 있음)에게만 보인다 - 구매완료수 보정값 업로드용.
+  { id: "sa-conversion-upload", label: "데이터 업로드", channels: ["SA"], requiresSaApi: true },
   // 이베이/11번가 - API 연동 없이 CSV 수기 업로드만 하는 채널(문성전자 전용).
   // enabled_channels에 EBAY/ELEVENST가 있는 광고주에게만 채널 탭 자체가 보인다.
   { id: "channel-overview", label: "성과 대시보드", channels: ["EBAY", "ELEVENST"] },
@@ -806,6 +808,7 @@ const groupedTableBody = document.getElementById("groupedTableBody");
 
 const viewUpload = document.getElementById("view-upload");
 const viewSaUpload = document.getElementById("view-sa-upload");
+const viewSaConversionUpload = document.getElementById("view-sa-conversion-upload");
 
 const viewChannelOverview = document.getElementById("view-channel-overview");
 const channelOverviewTitle = document.getElementById("channelOverviewTitle");
@@ -1609,15 +1612,11 @@ async function renderOverview() {
   gfaCampaignTypeSection.hidden = state.currentChannel !== "GFA";
   // 주요 상품 분석(전환수/ROAS/전환율 1위)도 SA 전용.
   topProductSection.hidden = state.currentChannel !== "SA";
-  // 구매완료수 보정은 API 자동 동기화 광고주만 의미가 있다 (수기 업로드는 애초에
-  // 광고주가 직접 숫자를 올리는 거라 보정이 따로 필요 없다).
-  conversionOverrideCard.hidden = !(state.currentChannel === "SA" && state.saMode === "api");
 
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
   } else {
     await renderSaOverview();
-    if (state.saMode === "api") loadConversionOverrides();
   }
 }
 
@@ -2795,6 +2794,7 @@ function renderSidebarMenu() {
   MENU_ITEMS.forEach((item) => {
     if (!item.channels.includes(state.currentChannel)) return;
     if (item.requiresSaManual && state.saMode !== "manual") return;
+    if (item.requiresSaApi && state.saMode !== "api") return;
 
     const li = document.createElement("li");
     const btn = document.createElement("button");
@@ -2837,6 +2837,7 @@ function renderCurrentView() {
   viewGrouped.hidden = true;
   viewUpload.hidden = true;
   viewSaUpload.hidden = true;
+  viewSaConversionUpload.hidden = true;
   viewChannelOverview.hidden = true;
   viewChannelUpload.hidden = true;
   viewPlaceholder.hidden = true;
@@ -2853,6 +2854,9 @@ function renderCurrentView() {
     viewUpload.hidden = false;
   } else if (item.id === "sa-upload") {
     viewSaUpload.hidden = false;
+  } else if (item.id === "sa-conversion-upload") {
+    viewSaConversionUpload.hidden = false;
+    loadConversionOverrides();
   } else if (item.id === "channel-overview") {
     viewChannelOverview.hidden = false;
     renderChannelOverview();

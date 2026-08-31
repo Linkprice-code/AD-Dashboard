@@ -246,49 +246,6 @@
 
         <div class="kpi-grid" id="kpiGrid"></div>
 
-        <!-- SA 전용(API 모드): 구매완료수 보정값 -->
-        <div class="model-list-card" id="conversionOverrideCard" hidden>
-          <h3 class="model-list-title">구매완료수 보정</h3>
-          <span class="breakdown-hint">
-            네이버 API로 받는 전환수가 네이버 광고관리시스템 화면의 "구매완료 전환수"와 다를 수 있어요
-            (간접전환 포함 여부 등 네이버 내부 집계 차이 - API로는 맞출 수 없음, 원인 확인 완료).
-            날짜+캠페인유형별로 실제 값을 입력해두면 위 KPI와 캠페인 유형별 성과 표에 이 값이 반영됩니다.
-          </span>
-
-          <span class="breakdown-hint"><b>파일로 한 번에 올리기</b> - 네이버에서 다운받은 "캠페인 유형별 구매완료수" 리포트(일별, 캠페인유형, 구매완료 전환수)를 그대로 올리면 됩니다. 다시 올리면 기존 보정값 전체가 새 파일 내용으로 교체됩니다.</span>
-          <form class="upload-form" id="conversionOverrideUploadForm">
-            <input type="file" class="upload-file-input" id="conversionOverrideFileInput" accept=".csv,.xlsx,.xls" required>
-            <button type="submit" class="btn-primary upload-submit-btn">파일 업로드</button>
-          </form>
-          <p class="upload-status" id="conversionOverrideUploadStatus" hidden></p>
-
-          <span class="breakdown-hint"><b>한 건만 직접 입력</b></span>
-          <form class="upload-form" id="conversionOverrideForm">
-            <input type="date" id="conversionOverrideDate" class="contract-input" required>
-            <select id="conversionOverrideType" class="contract-input" required>
-              <option value="WEB_SITE">파워링크</option>
-              <option value="SHOPPING">쇼핑검색</option>
-              <option value="BRAND_SEARCH">브랜드검색</option>
-            </select>
-            <input type="number" id="conversionOverrideValue" class="contract-input contract-cost-input" placeholder="구매완료수" min="0" step="1" required>
-            <button type="submit" class="btn-primary upload-submit-btn">저장</button>
-          </form>
-          <p class="upload-status" id="conversionOverrideStatus" hidden></p>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>날짜</th>
-                  <th>캠페인 유형</th>
-                  <th>구매완료수</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="conversionOverrideTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-
         <!-- SA 전용: 주요 상품 분석 (분석기간/비교기간 각각 전환수·ROAS·전환율 1위 상품) -->
         <div class="breakdown-section" id="topProductSection" hidden>
           <div class="top-product-groups">
@@ -827,6 +784,54 @@
           같은 종류(캠페인/키워드/상품/그룹)에서 같은 날짜(또는 시작일)로 다시 업로드하면,
           그 데이터는 새 데이터로 교체됩니다 (중복 누적 방지).
         </p>
+      </div>
+
+      <!-- SA 데이터 업로드 뷰 (API 연동 광고주 전용: 구매완료수 보정값만 다룬다) -->
+      <div class="view" id="view-sa-conversion-upload" hidden>
+        <h2 class="view-title">SA 데이터 업로드</h2>
+
+        <!-- SA 전용(API 모드): 구매완료수 보정값 -->
+        <div class="model-list-card" id="conversionOverrideCard">
+          <h3 class="model-list-title">구매완료수 보정</h3>
+          <span class="breakdown-hint">
+            네이버 API로 받는 전환수가 네이버 광고관리시스템 화면의 "구매완료 전환수"와 다를 수 있어요
+            (간접전환 포함 여부 등 네이버 내부 집계 차이 - API로는 맞출 수 없음, 원인 확인 완료).
+            날짜+캠페인유형별로 실제 값을 입력해두면 성과 대시보드 KPI와 캠페인 유형별 성과 표에 이 값이 반영됩니다.
+          </span>
+
+          <span class="breakdown-hint"><b>파일로 한 번에 올리기</b> - 네이버에서 다운받은 "캠페인 유형별 구매완료수" 리포트(일별, 캠페인유형, 구매완료 전환수)를 그대로 올리면 됩니다. 다시 올리면 기존 보정값 전체가 새 파일 내용으로 교체됩니다.</span>
+          <form class="upload-form" id="conversionOverrideUploadForm">
+            <input type="file" class="upload-file-input" id="conversionOverrideFileInput" accept=".csv,.xlsx,.xls" required>
+            <button type="submit" class="btn-primary upload-submit-btn">파일 업로드</button>
+          </form>
+          <p class="upload-status" id="conversionOverrideUploadStatus" hidden></p>
+
+          <span class="breakdown-hint"><b>한 건만 직접 입력</b></span>
+          <form class="upload-form" id="conversionOverrideForm">
+            <input type="date" id="conversionOverrideDate" class="contract-input" required>
+            <select id="conversionOverrideType" class="contract-input" required>
+              <option value="WEB_SITE">파워링크</option>
+              <option value="SHOPPING">쇼핑검색</option>
+              <option value="BRAND_SEARCH">브랜드검색</option>
+            </select>
+            <input type="number" id="conversionOverrideValue" class="contract-input contract-cost-input" placeholder="구매완료수" min="0" step="1" required>
+            <button type="submit" class="btn-primary upload-submit-btn">저장</button>
+          </form>
+          <p class="upload-status" id="conversionOverrideStatus" hidden></p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>캠페인 유형</th>
+                  <th>구매완료수</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="conversionOverrideTableBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- 준비 중 플레이스홀더 뷰 (그래프 추이, 일별/월별/카테고리별 데이터, 소재별 성과 등) -->
