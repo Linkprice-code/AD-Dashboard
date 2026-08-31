@@ -142,6 +142,9 @@
     <div class="channel-switch" id="channelSwitch" role="tablist">
       <button type="button" class="channel-tab active" data-channel="SA" role="tab" aria-selected="true">SA</button>
       <button type="button" class="channel-tab" data-channel="GFA" role="tab" aria-selected="false">GFA</button>
+      <!-- 문성전자처럼 enabled_channels에 EBAY/ELEVENST가 포함된 광고주에게만 JS가 hidden을 풀어준다. -->
+      <button type="button" class="channel-tab" data-channel="EBAY" role="tab" aria-selected="false" hidden>이베이</button>
+      <button type="button" class="channel-tab" data-channel="ELEVENST" role="tab" aria-selected="false" hidden>11번가</button>
     </div>
 
     <nav class="sidebar-menu">
@@ -249,10 +252,24 @@
           <span class="breakdown-hint">
             네이버 API로 받는 전환수가 네이버 광고관리시스템 화면의 "구매완료 전환수"와 다를 수 있어요
             (간접전환 포함 여부 등 네이버 내부 집계 차이 - API로는 맞출 수 없음, 원인 확인 완료).
-            날짜별로 실제 값을 입력해두면 그 날짜는 위 KPI(전환수/전환율/전환매출액 등)에 이 값이 반영됩니다.
+            날짜+캠페인유형별로 실제 값을 입력해두면 위 KPI와 캠페인 유형별 성과 표에 이 값이 반영됩니다.
           </span>
+
+          <span class="breakdown-hint"><b>파일로 한 번에 올리기</b> - 네이버에서 다운받은 "캠페인 유형별 구매완료수" 리포트(일별, 캠페인유형, 구매완료 전환수)를 그대로 올리면 됩니다. 다시 올리면 기존 보정값 전체가 새 파일 내용으로 교체됩니다.</span>
+          <form class="upload-form" id="conversionOverrideUploadForm">
+            <input type="file" class="upload-file-input" id="conversionOverrideFileInput" accept=".csv,.xlsx,.xls" required>
+            <button type="submit" class="btn-primary upload-submit-btn">파일 업로드</button>
+          </form>
+          <p class="upload-status" id="conversionOverrideUploadStatus" hidden></p>
+
+          <span class="breakdown-hint"><b>한 건만 직접 입력</b></span>
           <form class="upload-form" id="conversionOverrideForm">
             <input type="date" id="conversionOverrideDate" class="contract-input" required>
+            <select id="conversionOverrideType" class="contract-input" required>
+              <option value="WEB_SITE">파워링크</option>
+              <option value="SHOPPING">쇼핑검색</option>
+              <option value="BRAND_SEARCH">브랜드검색</option>
+            </select>
             <input type="number" id="conversionOverrideValue" class="contract-input contract-cost-input" placeholder="구매완료수" min="0" step="1" required>
             <button type="submit" class="btn-primary upload-submit-btn">저장</button>
           </form>
@@ -262,6 +279,7 @@
               <thead>
                 <tr>
                   <th>날짜</th>
+                  <th>캠페인 유형</th>
                   <th>구매완료수</th>
                   <th></th>
                 </tr>
@@ -375,6 +393,150 @@
               </table>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 이베이/11번가(EBAY/ELEVENST) 전용: 성과 대시보드 - API 연동 없이 CSV 수기 업로드만 하는
+           채널이라, GFA와 비슷하지만 훨씬 단순한 구조(KPI + 광고 유형별 + 캠페인별 표 2개)만 쓴다.
+           문성전자에게만 채널 탭이 보이므로, 다른 광고주는 이 뷰 자체에 진입할 수 없다. -->
+      <div class="view" id="view-channel-overview" hidden>
+        <h2 class="view-title" id="channelOverviewTitle">이베이 성과 대시보드</h2>
+        <p class="empty-notice" id="channelOverviewEmptyNotice" hidden></p>
+
+        <div class="kpi-grid" id="channelKpiGrid"></div>
+
+        <div class="breakdown-section">
+          <div class="breakdown-card">
+            <div class="breakdown-header">
+              <h3 class="breakdown-title">광고 유형별 성과</h3>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>광고 유형</th>
+                    <th>광고비</th>
+                    <th>광고매출</th>
+                    <th>ROAS</th>
+                    <th>클릭수</th>
+                    <th>CTR</th>
+                    <th>전환수</th>
+                    <th>CVR</th>
+                    <th>CPA</th>
+                  </tr>
+                </thead>
+                <tbody id="channelAdTypeTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="breakdown-section">
+          <div class="breakdown-card">
+            <div class="breakdown-header">
+              <h3 class="breakdown-title">캠페인별 성과</h3>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>캠페인</th>
+                    <th>광고비</th>
+                    <th>광고매출</th>
+                    <th>ROAS</th>
+                    <th>클릭수</th>
+                    <th>CTR</th>
+                    <th>전환수</th>
+                    <th>CVR</th>
+                    <th>CPA</th>
+                  </tr>
+                </thead>
+                <tbody id="channelCampaignTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 이베이/11번가(EBAY/ELEVENST) 전용: 데이터 업로드 - 채널당 광고 유형 3개씩,
+           총 6개 업로드 카드를 두고 지금 선택된 채널에 맞는 3개만 JS가 보여준다. -->
+      <div class="view" id="view-channel-upload" hidden>
+        <h2 class="view-title" id="channelUploadTitle">이베이 데이터 업로드</h2>
+        <p class="upload-intro">
+          <b>날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</b> 7개 컬럼의 CSV(또는 엑셀)를 업로드하세요.
+          같은 날짜로 다시 업로드하면 그 날짜의 기존 데이터는 새로 올린 내용으로 교체됩니다.
+        </p>
+
+        <div class="upload-grid">
+
+          <!-- 이베이 -->
+          <div class="upload-card channel-upload-card" data-channel="EBAY">
+            <h3 class="upload-card-title">이베이 · 통합운영형</h3>
+            <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
+            <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form channel-upload-form" data-channel="EBAY" data-ad-type="통합운영형">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
+          <div class="upload-card channel-upload-card" data-channel="EBAY">
+            <h3 class="upload-card-title">이베이 · 집중운영형</h3>
+            <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
+            <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form channel-upload-form" data-channel="EBAY" data-ad-type="집중운영형">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
+          <div class="upload-card channel-upload-card" data-channel="EBAY">
+            <h3 class="upload-card-title">이베이 · 직접운영형</h3>
+            <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
+            <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form channel-upload-form" data-channel="EBAY" data-ad-type="직접운영형">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
+          <!-- 11번가 -->
+          <div class="upload-card channel-upload-card" data-channel="ELEVENST">
+            <h3 class="upload-card-title">11번가 · 포커스클릭</h3>
+            <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
+            <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form channel-upload-form" data-channel="ELEVENST" data-ad-type="포커스클릭">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
+          <div class="upload-card channel-upload-card" data-channel="ELEVENST">
+            <h3 class="upload-card-title">11번가 · AI캠페인</h3>
+            <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
+            <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form channel-upload-form" data-channel="ELEVENST" data-ad-type="AI캠페인">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
+          <div class="upload-card channel-upload-card" data-channel="ELEVENST">
+            <h3 class="upload-card-title">11번가 · 전시입찰광고</h3>
+            <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
+            <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
+            <form class="upload-form channel-upload-form" data-channel="ELEVENST" data-ad-type="전시입찰광고">
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
+            </form>
+            <p class="upload-status" hidden></p>
+          </div>
+
         </div>
       </div>
 
