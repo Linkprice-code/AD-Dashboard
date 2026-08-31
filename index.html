@@ -243,6 +243,34 @@
 
         <div class="kpi-grid" id="kpiGrid"></div>
 
+        <!-- SA 전용(API 모드): 구매완료수 보정값 -->
+        <div class="model-list-card" id="conversionOverrideCard" hidden>
+          <h3 class="model-list-title">구매완료수 보정</h3>
+          <span class="breakdown-hint">
+            네이버 API로 받는 전환수가 네이버 광고관리시스템 화면의 "구매완료 전환수"와 다를 수 있어요
+            (간접전환 포함 여부 등 네이버 내부 집계 차이 - API로는 맞출 수 없음, 원인 확인 완료).
+            날짜별로 실제 값을 입력해두면 그 날짜는 위 KPI(전환수/전환율/전환매출액 등)에 이 값이 반영됩니다.
+          </span>
+          <form class="upload-form" id="conversionOverrideForm">
+            <input type="date" id="conversionOverrideDate" class="contract-input" required>
+            <input type="number" id="conversionOverrideValue" class="contract-input contract-cost-input" placeholder="구매완료수" min="0" step="1" required>
+            <button type="submit" class="btn-primary upload-submit-btn">저장</button>
+          </form>
+          <p class="upload-status" id="conversionOverrideStatus" hidden></p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>구매완료수</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="conversionOverrideTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- SA 전용: 주요 상품 분석 (분석기간/비교기간 각각 전환수·ROAS·전환율 1위 상품) -->
         <div class="breakdown-section" id="topProductSection" hidden>
           <div class="top-product-groups">

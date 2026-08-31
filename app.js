@@ -25,6 +25,7 @@ const SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/
 const SA_PRODUCT_MODEL_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-model-mapping-upload`;
 const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
 const SA_BRAND_SEARCH_CONTRACT_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-brand-search-contract`;
+const SA_CONVERSION_OVERRIDE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-conversion-override`;
 const SA_MANUAL_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-keyword-performance`;
 const SA_MANUAL_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-manual-product-performance`;
 const SESSION_STORAGE_KEY = "adsDashboardSession";
@@ -610,6 +611,57 @@ function deleteBrandSearchContract(id) {
 }
 
 /* ---------------------------------------------------------
+   4-3. SA 구매완료수 보정값 (네이버 API 전환수가 화면 값과 달라서 직접 입력)
+--------------------------------------------------------- */
+async function callConversionOverride(body) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_CONVERSION_OVERRIDE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "요청 처리에 실패했습니다." };
+  }
+
+  return payload;
+}
+
+function fetchConversionOverrides() {
+  return callConversionOverride({ action: "list" });
+}
+
+function saveConversionOverride(date, conversions) {
+  return callConversionOverride({ action: "save", date, conversions });
+}
+
+function deleteConversionOverride(id) {
+  return callConversionOverride({ action: "delete", id });
+}
+
+/* ---------------------------------------------------------
    5. DOM 참조
 --------------------------------------------------------- */
 const loginScreen = document.getElementById("loginScreen");
@@ -721,6 +773,13 @@ const brandSearchContractTableBody = document.getElementById("brandSearchContrac
 
 const overviewEmptyNotice = document.getElementById("overviewEmptyNotice");
 
+const conversionOverrideCard = document.getElementById("conversionOverrideCard");
+const conversionOverrideForm = document.getElementById("conversionOverrideForm");
+const conversionOverrideDate = document.getElementById("conversionOverrideDate");
+const conversionOverrideValue = document.getElementById("conversionOverrideValue");
+const conversionOverrideStatus = document.getElementById("conversionOverrideStatus");
+const conversionOverrideTableBody = document.getElementById("conversionOverrideTableBody");
+
 const campaignTypeSection = document.getElementById("campaignTypeSection");
 const campaignTypeFilter = document.getElementById("campaignTypeFilter");
 const campaignTypeTableBody = document.getElementById("campaignTypeTableBody");
@@ -756,6 +815,7 @@ const state = {
   modelViewOpts: null,
   keywordViewRows: [],
   brandSearchContractRows: [],
+  conversionOverrideRows: [],
   breakdownSort: { key: "cost", dir: "desc" },
   overviewRenderToken: 0
 };
@@ -1411,11 +1471,15 @@ async function renderOverview() {
   gfaCampaignTypeSection.hidden = state.currentChannel !== "GFA";
   // 주요 상품 분석(전환수/ROAS/전환율 1위)도 SA 전용.
   topProductSection.hidden = state.currentChannel !== "SA";
+  // 구매완료수 보정은 API 자동 동기화 광고주만 의미가 있다 (수기 업로드는 애초에
+  // 광고주가 직접 숫자를 올리는 거라 보정이 따로 필요 없다).
+  conversionOverrideCard.hidden = !(state.currentChannel === "SA" && state.saMode === "api");
 
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
   } else {
     await renderSaOverview();
+    if (state.saMode === "api") loadConversionOverrides();
   }
 }
 
@@ -2007,6 +2071,83 @@ brandSearchContractTableBody.addEventListener("click", async (e) => {
     return;
   }
   await loadBrandSearchContracts();
+});
+
+/* ---------------------------------------------------------
+   6-1d. SA 구매완료수 보정값 (네이버 API 전환수가 화면 값과 달라서 직접 입력)
+--------------------------------------------------------- */
+async function loadConversionOverrides() {
+  conversionOverrideTableBody.innerHTML = '<tr><td colspan="3" class="grouped-empty">불러오는 중...</td></tr>';
+  const result = await fetchConversionOverrides();
+  if (!result.success) {
+    conversionOverrideTableBody.innerHTML = `<tr><td colspan="3" class="grouped-empty">${escapeHtml(result.message)}</td></tr>`;
+    return;
+  }
+  state.conversionOverrideRows = result.rows;
+  renderConversionOverrideTable();
+}
+
+function renderConversionOverrideTable() {
+  const rows = state.conversionOverrideRows;
+  if (rows.length === 0) {
+    conversionOverrideTableBody.innerHTML = '<tr><td colspan="3" class="grouped-empty">입력된 보정값이 없습니다.</td></tr>';
+    return;
+  }
+
+  conversionOverrideTableBody.innerHTML = rows
+    .map(
+      (r) => `
+        <tr>
+          <td>${r.date}</td>
+          <td>${formatNumber(r.conversions)}건</td>
+          <td><button type="button" class="contract-delete-btn" data-id="${r.id}">삭제</button></td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+conversionOverrideForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const date = conversionOverrideDate.value;
+  const conversions = Number(conversionOverrideValue.value);
+
+  conversionOverrideStatus.hidden = true;
+  const submitBtn = conversionOverrideForm.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  const originalLabel = submitBtn.textContent;
+  submitBtn.textContent = "저장 중...";
+
+  const result = await saveConversionOverride(date, conversions);
+
+  submitBtn.disabled = false;
+  submitBtn.textContent = originalLabel;
+
+  if (!result.success) {
+    showUploadStatus(conversionOverrideStatus, result.message || "저장 중 오류가 발생했습니다.", "error");
+    return;
+  }
+
+  showUploadStatus(conversionOverrideStatus, "저장 완료", "success");
+  conversionOverrideForm.reset();
+  await loadConversionOverrides();
+  if (state.currentView === "overview") refreshCurrentPeriodView();
+});
+
+conversionOverrideTableBody.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".contract-delete-btn");
+  if (!btn) return;
+
+  btn.disabled = true;
+  const result = await deleteConversionOverride(Number(btn.dataset.id));
+  if (!result.success) {
+    btn.disabled = false;
+    showUploadStatus(conversionOverrideStatus, result.message || "삭제 중 오류가 발생했습니다.", "error");
+    return;
+  }
+  await loadConversionOverrides();
+  if (state.currentView === "overview") refreshCurrentPeriodView();
 });
 
 /* ---------------------------------------------------------
