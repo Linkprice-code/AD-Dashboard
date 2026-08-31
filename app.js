@@ -728,6 +728,12 @@ const campaignTypeTableBody = document.getElementById("campaignTypeTableBody");
 const gfaCampaignTypeSection = document.getElementById("gfaCampaignTypeSection");
 const gfaCampaignTypeTableBody = document.getElementById("gfaCampaignTypeTableBody");
 
+const topProductSection = document.getElementById("topProductSection");
+const topProductAnalysisTitle = document.getElementById("topProductAnalysisTitle");
+const topProductAnalysisGrid = document.getElementById("topProductAnalysisGrid");
+const topProductCompareTitle = document.getElementById("topProductCompareTitle");
+const topProductCompareGrid = document.getElementById("topProductCompareGrid");
+
 const breakdownTitle = document.getElementById("breakdownTitle");
 const breakdownFilter = document.getElementById("breakdownFilter");
 const breakdownTable = document.getElementById("breakdownTable");
@@ -1403,6 +1409,8 @@ async function renderOverview() {
   campaignTypeSection.hidden = state.currentChannel !== "SA";
   // GFA 캠페인 유형별(웹사이트 전환/인지도 및 트래픽/쇼핑 프로모션/카탈로그 판매/동영상 조회)은 그 반대.
   gfaCampaignTypeSection.hidden = state.currentChannel !== "GFA";
+  // 주요 상품 분석(전환수/ROAS/전환율 1위)도 SA 전용.
+  topProductSection.hidden = state.currentChannel !== "SA";
 
   if (state.currentChannel === "GFA") {
     await renderGfaOverview();
@@ -1421,10 +1429,19 @@ async function renderSaOverview() {
   const { from, to } = state.analysisPeriod;
   const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
 
-  const [currentResult, comparisonResult] = await Promise.all([
+  const [currentResult, comparisonResult, topProductAnalysisResult, topProductCompareResult] = await Promise.all([
     fetchSaPerformanceAny("type", { dateFrom: from, dateTo: to }),
-    fetchSaPerformanceAny("type", { dateFrom: compareFrom, dateTo: compareTo })
+    fetchSaPerformanceAny("type", { dateFrom: compareFrom, dateTo: compareTo }),
+    fetchSaProductPerformanceAny({ dateFrom: from, dateTo: to }),
+    fetchSaProductPerformanceAny({ dateFrom: compareFrom, dateTo: compareTo })
   ]);
+
+  if (token === state.overviewRenderToken) {
+    topProductAnalysisTitle.textContent = `분석 기간 상품 분석 (${formatPeriodRange(state.analysisPeriod)})`;
+    topProductCompareTitle.textContent = `비교 기간 상품 분석 (${formatPeriodRange(state.comparisonPeriod)})`;
+    renderTopProductGrid(topProductAnalysisGrid, topProductAnalysisResult.success ? topProductAnalysisResult.rows : []);
+    renderTopProductGrid(topProductCompareGrid, topProductCompareResult.success ? topProductCompareResult.rows : []);
+  }
 
   if (token !== state.overviewRenderToken) return;
 
@@ -1505,6 +1522,76 @@ function renderCampaignTypeRows() {
       <td>${formatWon(row.cpa)}</td>
     </tr>
   `;
+}
+
+/* ---------------------------------------------------------
+   6-1c. 주요 상품 분석 (SA 전용) - 분석기간/비교기간 각각 전환수 1위 /
+   ROAS 1위 / 전환율 1위 상품 카드 3개씩. ROAS·전환율은 클릭수가 너무
+   적으면 우연히 극단적인 값이 나올 수 있어서, 최소 클릭수 이상인
+   상품 중에서만 뽑는다 (전환수 1위는 그 제한 없이 전체에서 뽑는다).
+--------------------------------------------------------- */
+const TOP_PRODUCT_MIN_CLICKS = 30;
+
+function computeTopProducts(rows, minClicks) {
+  const withConversions = rows.filter((r) => r.conversions > 0);
+  const topConversions = withConversions.length
+    ? withConversions.reduce((best, r) => (r.conversions > best.conversions ? r : best))
+    : null;
+
+  const eligible = rows.filter((r) => r.clicks >= minClicks && r.cost > 0);
+  const topRoas = eligible.length ? eligible.reduce((best, r) => (r.revenue / r.cost > best.revenue / best.cost ? r : best)) : null;
+  const topCvr = eligible.length ? eligible.reduce((best, r) => (r.cvr > best.cvr ? r : best)) : null;
+
+  return { topConversions, topRoas, topCvr };
+}
+
+// card: { label, row, mainValue } - row가 없으면(조건을 만족하는 상품이 없으면) 빈 카드를 보여준다.
+function renderTopProductCard(card) {
+  const { label, row, mainValue } = card;
+
+  if (!row) {
+    return `
+      <div class="top-product-card top-product-card-empty">
+        <span class="top-product-card-label">${escapeHtml(label)}</span>
+        <p class="top-product-card-empty-text">조건을 만족하는 상품이 없습니다</p>
+      </div>
+    `;
+  }
+
+  const roasPercent = row.cost > 0 ? ((row.revenue / row.cost) * 100).toFixed(2) : "0.00";
+
+  return `
+    <div class="top-product-card">
+      <span class="top-product-card-label">${escapeHtml(label)}</span>
+      <span class="top-product-card-name">${escapeHtml(row.name)}</span>
+      <span class="top-product-card-value">${mainValue}</span>
+      <span class="top-product-card-desc">전환 ${formatNumber(row.conversions)}건 · 전환매출 ${formatWon(row.revenue)} · ROAS ${roasPercent}%</span>
+    </div>
+  `;
+}
+
+function renderTopProductGrid(gridEl, rows) {
+  const { topConversions, topRoas, topCvr } = computeTopProducts(rows, TOP_PRODUCT_MIN_CLICKS);
+
+  const cards = [
+    {
+      label: "전환수 1위",
+      row: topConversions,
+      mainValue: topConversions ? `${formatNumber(topConversions.conversions)}건` : ""
+    },
+    {
+      label: `ROAS 1위 (클릭 ${TOP_PRODUCT_MIN_CLICKS}건↑)`,
+      row: topRoas,
+      mainValue: topRoas ? `${((topRoas.revenue / topRoas.cost) * 100).toFixed(2)}%` : ""
+    },
+    {
+      label: `전환율 1위 (클릭 ${TOP_PRODUCT_MIN_CLICKS}건↑)`,
+      row: topCvr,
+      mainValue: topCvr ? `${topCvr.cvr.toFixed(2)}%` : ""
+    }
+  ];
+
+  gridEl.innerHTML = cards.map(renderTopProductCard).join("");
 }
 
 /* ---------------------------------------------------------
