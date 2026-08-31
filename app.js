@@ -1439,8 +1439,8 @@ async function renderSaOverview() {
   if (token === state.overviewRenderToken) {
     topProductAnalysisTitle.textContent = `분석 기간 상품 분석 (${formatPeriodRange(state.analysisPeriod)})`;
     topProductCompareTitle.textContent = `비교 기간 상품 분석 (${formatPeriodRange(state.comparisonPeriod)})`;
-    renderTopProductGrid(topProductAnalysisGrid, topProductAnalysisResult.success ? topProductAnalysisResult.rows : []);
-    renderTopProductGrid(topProductCompareGrid, topProductCompareResult.success ? topProductCompareResult.rows : []);
+    renderTopProductGrid(topProductAnalysisGrid, topProductAnalysisResult.success ? topProductAnalysisResult.rows : [], state.analysisPeriod);
+    renderTopProductGrid(topProductCompareGrid, topProductCompareResult.success ? topProductCompareResult.rows : [], state.comparisonPeriod);
   }
 
   if (token !== state.overviewRenderToken) return;
@@ -1546,7 +1546,9 @@ function computeTopProducts(rows, minClicks) {
 }
 
 // card: { label, row, mainValue } - row가 없으면(조건을 만족하는 상품이 없으면) 빈 카드를 보여준다.
-function renderTopProductCard(card) {
+// idx가 있으면(=row도 있으면) 클릭 가능한 카드로 만든다 (data-idx로 표시, 클릭 핸들러는
+// renderTopProductGrid에서 붙인다 - "상품별 데이터" 페이지의 모델 카드와 같은 상세 모달을 연다).
+function renderTopProductCard(card, idx) {
   const { label, row, mainValue } = card;
 
   if (!row) {
@@ -1561,7 +1563,7 @@ function renderTopProductCard(card) {
   const roasPercent = row.cost > 0 ? ((row.revenue / row.cost) * 100).toFixed(2) : "0.00";
 
   return `
-    <div class="top-product-card">
+    <div class="top-product-card top-product-card-clickable" data-idx="${idx}">
       <span class="top-product-card-label">${escapeHtml(label)}</span>
       <span class="top-product-card-name">${escapeHtml(row.name)}</span>
       <span class="top-product-card-value">${mainValue}</span>
@@ -1570,7 +1572,9 @@ function renderTopProductCard(card) {
   `;
 }
 
-function renderTopProductGrid(gridEl, rows) {
+// period: 이 grid가 어느 기간(분석기간/비교기간) 카드인지 - 카드를 클릭해서 여는 상세
+// 모달에 그 기간을 그대로 표시해주기 위해 필요하다.
+function renderTopProductGrid(gridEl, rows, period) {
   const { topConversions, topRoas, topCvr } = computeTopProducts(rows, TOP_PRODUCT_MIN_CLICKS);
 
   const cards = [
@@ -1592,6 +1596,25 @@ function renderTopProductGrid(gridEl, rows) {
   ];
 
   gridEl.innerHTML = cards.map(renderTopProductCard).join("");
+
+  gridEl.querySelectorAll(".top-product-card-clickable").forEach((cardEl) => {
+    const row = cards[Number(cardEl.dataset.idx)].row;
+    cardEl.addEventListener("click", () => {
+      openModelDetailModal(
+        {
+          model: row.name,
+          category: null,
+          keywords: null,
+          impressions: row.impressions,
+          clicks: row.clicks,
+          cost: row.cost,
+          conversions: row.conversions,
+          revenue: row.revenue
+        },
+        period
+      );
+    });
+  });
 }
 
 /* ---------------------------------------------------------
@@ -2207,7 +2230,9 @@ modelSearchInput.addEventListener("input", () => {
   renderModelCardGrid(state.modelViewRows, state.modelViewOpts);
 });
 
-function openModelDetailModal(model) {
+// period: 이 상세를 어느 기간 기준으로 보여줄지 (기본은 분석기간). "주요 상품 분석"의
+// "비교 기간" 카드를 클릭했을 때는 비교기간을 넘겨줘서 라벨이 실제 기간과 맞게 한다.
+function openModelDetailModal(model, period) {
   const d = withDerivedMetrics(model);
 
   if (model.category) {
@@ -2220,7 +2245,7 @@ function openModelDetailModal(model) {
   }
 
   modelDetailTitle.textContent = model.model;
-  modelDetailPeriodLabel.textContent = state.analysisPeriod ? formatPeriodRange(state.analysisPeriod) : "";
+  modelDetailPeriodLabel.textContent = formatPeriodRange(period || state.analysisPeriod);
 
   modelDetailImpressions.textContent = formatNumber(d.impressions);
   modelDetailClicks.textContent = formatNumber(d.clicks);
