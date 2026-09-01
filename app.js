@@ -795,6 +795,7 @@ const advertiserNameEl = document.getElementById("advertiserName");
 const periodLabel = document.getElementById("periodLabel");
 const logoutBtn = document.getElementById("logoutBtn");
 const pdfExportBtn = document.getElementById("pdfExportBtn");
+const htmlReportBtn = document.getElementById("htmlReportBtn");
 
 const kpiGrid = document.getElementById("kpiGrid");
 const viewOverview = document.getElementById("view-overview");
@@ -1190,6 +1191,7 @@ logoutBtn.addEventListener("click", () => {
    현재 화면(지금 열려있는 뷰) 그대로 PDF로 저장
 --------------------------------------------------------- */
 pdfExportBtn.addEventListener("click", exportCurrentViewToPdf);
+htmlReportBtn.addEventListener("click", generateHtmlReport);
 
 // jsPDF 내장 폰트(Helvetica 등)는 한글 글리프가 없어서 pdf.text()로 직접 그리면
 // 깨진 문자가 나온다. 그래서 헤더도 본문처럼 html2canvas로 화면 그대로 캡처해서
@@ -1395,6 +1397,436 @@ async function exportCurrentViewToPdf() {
     pdfExportBtn.disabled = false;
     pdfExportBtn.textContent = originalLabel;
   }
+}
+
+/* ---------------------------------------------------------
+   광고주에게 보낼 수 있는 독립 실행형 HTML 보고서 다운로드
+   ---------------------------------------------------------
+   지금 로그인된 광고주 + 지금 선택된 분석기간 기준으로 SA/GFA 데이터를 모두
+   가져와서, Supabase 세션 없이도 브라우저에서 그냥 열어볼 수 있는 정적 HTML
+   파일 하나로 묶어 다운로드한다 (Tailwind/Chart.js는 CDN으로 불러오지만,
+   데이터 자체는 파일 안에 그대로 박아넣는다).
+--------------------------------------------------------- */
+const SA_KEYWORD_CAMPAIGN_TYPES = [
+  { code: "WEB_SITE", label: "파워링크" },
+  { code: "SHOPPING", label: "쇼핑검색" },
+  { code: "BRAND_SEARCH", label: "브랜드검색" }
+];
+
+async function generateHtmlReport() {
+  const originalLabel = htmlReportBtn.textContent;
+  htmlReportBtn.disabled = true;
+  htmlReportBtn.textContent = "생성 중...";
+
+  try {
+    const { from, to } = state.analysisPeriod;
+    const advertiserName = advertiserNameEl.textContent || "광고주";
+
+    const [
+      saTypeResult,
+      saProductResult,
+      ...saKeywordResults
+    ] = await Promise.all([
+      // "campaign" 그룹이 아니라 "type"(캠페인 유형별) 그룹으로 가져와야 구매완료수
+      // 보정값(sa_conversion_overrides)이 반영된다 (sa-performance는 group_by="type"일
+      // 때만 보정값을 더해준다 - renderSaOverview의 성과 대시보드 KPI와 동일한 방식).
+      fetchSaPerformanceAny("type", { dateFrom: from, dateTo: to }),
+      fetchSaProductPerformanceAny({ dateFrom: from, dateTo: to }),
+      ...SA_KEYWORD_CAMPAIGN_TYPES.map((t) => fetchSaKeywordPerformanceAny(t.code, { dateFrom: from, dateTo: to }))
+    ]);
+
+    const [gfaCampaignResult, gfaAdvResult, gfaCreativeResult] = await Promise.all([
+      fetchGfaPerformance("campaign", { dateFrom: from, dateTo: to }),
+      fetchGfaPerformance("adv", { dateFrom: from, dateTo: to }),
+      fetchGfaPerformance("creative", { dateFrom: from, dateTo: to })
+    ]);
+
+    const saKeywords = [];
+    SA_KEYWORD_CAMPAIGN_TYPES.forEach((t, i) => {
+      const r = saKeywordResults[i];
+      if (r.success) {
+        r.rows.forEach((row) => saKeywords.push({ ...row, campaignType: t.label }));
+      }
+    });
+
+    const report = {
+      advertiserName,
+      periodLabel: formatPeriodRange(state.analysisPeriod),
+      generatedAt: new Date().toISOString().slice(0, 10),
+      sa: {
+        kpi: withDerivedMetrics(saTypeResult.success ? sumRawTotals(saTypeResult.rows) : { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }),
+        products: saProductResult.success ? saProductResult.rows.map((r) => ({ name: r.name, impressions: r.impressions, clicks: r.clicks, cost: r.cost, conversions: r.conversions, revenue: r.revenue, ctr: r.ctr, cvr: r.cvr, roas: r.roas })) : [],
+        keywords: saKeywords
+      },
+      gfa: {
+        kpi: withDerivedMetrics(gfaCampaignResult.success ? sumRawTotals(gfaCampaignResult.rows) : { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }),
+        products: gfaAdvResult.success ? gfaAdvResult.rows.map((r) => ({ name: extractModelCodeFromProductName(r.name) || r.name, impressions: r.impressions, clicks: r.clicks, cost: r.cost, conversions: r.conversions, revenue: r.revenue, ctr: r.ctr, cvr: r.cvr, roas: r.roas })) : [],
+        creatives: gfaCreativeResult.success ? gfaCreativeResult.rows.map((r) => ({ name: r.name, impressions: r.impressions, clicks: r.clicks, cost: r.cost, conversions: r.conversions, revenue: r.revenue, ctr: r.ctr, cvr: r.cvr, roas: r.roas })) : []
+      }
+    };
+
+    const html = buildReportHtmlDocument(report);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const slug = advertiserName.replace(/\s+/g, "_");
+    a.href = url;
+    a.download = `${slug}_광고운영보고서_${from}~${to}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error("[html report]", e);
+    alert("보고서 생성 중 오류가 발생했습니다.");
+  } finally {
+    htmlReportBtn.disabled = false;
+    htmlReportBtn.textContent = originalLabel;
+  }
+}
+
+function buildReportHtmlDocument(report) {
+  const dataScript = "const REPORT = " + JSON.stringify(report) + ";";
+
+  const renderScript = [
+    "function esc(s){ s = String(s == null ? '' : s); return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;'); }",
+    "function fmtNum(n){ return Math.round(n).toLocaleString('ko-KR'); }",
+    "function fmtWon(n){ return Math.round(n).toLocaleString('ko-KR') + '원'; }",
+    "function fmtPct(n){ return n.toFixed(2) + '%'; }",
+    "var KPI_DEFS = [",
+    "  {key:'impressions', label:'노출수', fmt:fmtNum},",
+    "  {key:'clicks', label:'클릭수', fmt:fmtNum},",
+    "  {key:'ctr', label:'클릭률', fmt:fmtPct},",
+    "  {key:'cpc', label:'CPC', fmt:fmtWon},",
+    "  {key:'cost', label:'총비용', fmt:fmtWon},",
+    "  {key:'conversions', label:'전환수', fmt:fmtNum},",
+    "  {key:'cvr', label:'전환율', fmt:fmtPct},",
+    "  {key:'revenue', label:'전환매출액', fmt:fmtWon},",
+    "  {key:'roas', label:'ROAS', fmt:function(n){return n+'%';}},",
+    "  {key:'cpa', label:'전환당비용', fmt:fmtWon}",
+    "];",
+    "function renderKpi(gridId, kpi){",
+    "  var el = document.getElementById(gridId);",
+    "  var html = '';",
+    "  for (var i=0;i<KPI_DEFS.length;i++){",
+    "    var d = KPI_DEFS[i];",
+    "    html += '<div class=\"bg-white rounded-xl shadow-sm border border-slate-200 p-4\">' +",
+    "      '<p class=\"text-xs text-slate-500 font-medium\">' + d.label + '</p>' +",
+    "      '<p class=\"text-xl font-bold text-slate-900 mt-1\">' + d.fmt(kpi[d.key]) + '</p>' +",
+    "      '</div>';",
+    "  }",
+    "  el.innerHTML = html;",
+    "}",
+    "function top5ByRevenue(list){",
+    "  return list.slice().sort(function(a,b){ return b.revenue - a.revenue; }).slice(0,5);",
+    "}",
+    "function renderProductCharts(prefix, products){",
+    "  var top5 = top5ByRevenue(products);",
+    "  var colors = ['#2563eb','#38bdf8','#22c55e','#f59e0b','#a855f7'];",
+    "  var total = top5.reduce(function(s,m){ return s + m.revenue; }, 0);",
+    "  var pctOf = function(rev){ return total > 0 ? ((rev/total)*100).toFixed(1) : '0.0'; };",
+    "  new Chart(document.getElementById(prefix + 'DonutChart'), {",
+    "    type: 'doughnut',",
+    "    data: {",
+    "      labels: top5.map(function(m){ return m.name + ' (' + pctOf(m.revenue) + '%)'; }),",
+    "      datasets: [{ data: top5.map(function(m){ return m.revenue; }), backgroundColor: colors, borderWidth: 0 }]",
+    "    },",
+    "    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:12} } } } }",
+    "  });",
+    "  new Chart(document.getElementById(prefix + 'BarChart'), {",
+    "    data: {",
+    "      labels: top5.map(function(m){ return m.name; }),",
+    "      datasets: [",
+    "        { type:'bar', label:'전환율(CVR) %', data: top5.map(function(m){ return Number(m.cvr.toFixed(1)); }), backgroundColor:'#2563eb', yAxisID:'y' },",
+    "        { type:'line', label:'ROAS (천%)', data: top5.map(function(m){ return Number((m.roas/1000).toFixed(1)); }), borderColor:'#ef4444', backgroundColor:'#ef4444', yAxisID:'y1', tension:0.3 }",
+    "      ]",
+    "    },",
+    "    options: {",
+    "      responsive:true, maintainAspectRatio:false,",
+    "      plugins:{ legend:{ position:'top', labels:{ boxWidth:12, font:{size:11} } } },",
+    "      scales:{",
+    "        y:{ position:'left', title:{display:true, text:'CVR (%)'}, grid:{ color:'rgba(0,0,0,0.05)' } },",
+    "        y1:{ position:'right', title:{display:true, text:'ROAS (천%)'}, grid:{ drawOnChartArea:false } }",
+    "      }",
+    "    }",
+    "  });",
+    "}",
+    "function productCardHtml(p){",
+    "  return '<div class=\"bg-white rounded-xl shadow-sm border border-slate-200 p-5\">' +",
+    "    '<h3 class=\"text-base font-bold text-slate-800 mb-2\">' + esc(p.name) + '</h3>' +",
+    "    '<div class=\"bg-slate-50 rounded-lg p-3 text-xs text-slate-700 grid grid-cols-2 gap-y-2 mb-3 border border-slate-100\">' +",
+    "      '<div><span class=\"text-slate-400\">노출수:</span> ' + fmtNum(p.impressions) + '</div>' +",
+    "      '<div><span class=\"text-slate-400\">클릭수:</span> ' + fmtNum(p.clicks) + '</div>' +",
+    "      '<div><span class=\"text-slate-400\">총비용:</span> ' + fmtWon(p.cost) + '</div>' +",
+    "      '<div><span class=\"text-slate-400\">전환수:</span> ' + fmtNum(p.conversions) + '건</div>' +",
+    "      '<div class=\"col-span-2 pt-2 border-t border-slate-200 text-sm\"><span class=\"text-slate-400\">총매출:</span> <span class=\"font-bold text-slate-900\">' + fmtWon(p.revenue) + '</span></div>' +",
+    "      '<div class=\"col-span-2 flex justify-between font-bold\"><span><span class=\"text-slate-400 font-normal\">CVR:</span> <span class=\"text-blue-600\">' + fmtPct(p.cvr) + '</span></span><span><span class=\"text-slate-400 font-normal\">ROAS:</span> <span class=\"text-indigo-600\">' + p.roas + '%</span></span></div>' +",
+    "    '</div>' +",
+    "  '</div>';",
+    "}",
+    "function renderProductSection(prefix, products){",
+    "  var sorted = products.slice().sort(function(a,b){ return b.revenue - a.revenue; });",
+    "  var grid = document.getElementById(prefix + 'ProductGrid');",
+    "  var moreBtn = document.getElementById(prefix + 'ProductMoreBtn');",
+    "  if (sorted.length === 0){ grid.innerHTML = '<p class=\"text-sm text-slate-400\">표시할 상품 데이터가 없습니다.</p>'; moreBtn.hidden = true; return; }",
+    "  renderProductCharts(prefix, sorted);",
+    "  var expanded = false;",
+    "  function draw(){",
+    "    var list = expanded ? sorted : sorted.slice(0,3);",
+    "    grid.innerHTML = list.map(productCardHtml).join('');",
+    "  }",
+    "  draw();",
+    "  if (sorted.length <= 3){ moreBtn.hidden = true; } else {",
+    "    moreBtn.hidden = false;",
+    "    moreBtn.textContent = '더보기 (' + (sorted.length - 3) + '개 더 있음)';",
+    "    moreBtn.addEventListener('click', function(){",
+    "      expanded = !expanded;",
+    "      draw();",
+    "      moreBtn.textContent = expanded ? '접기' : '더보기 (' + (sorted.length - 3) + '개 더 있음)';",
+    "    });",
+    "  }",
+    "}",
+    "function renderKeywordSection(rows){",
+    "  var sorted = rows.slice().sort(function(a,b){ return b.cost - a.cost; });",
+    "  var tbody = document.getElementById('saKeywordTableBody');",
+    "  var moreBtn = document.getElementById('saKeywordMoreBtn');",
+    "  var filterWrap = document.getElementById('saKeywordFilter');",
+    "  var currentType = '';",
+    "  var expanded = false;",
+    "  function rowHtml(r){",
+    "    return '<tr>' +",
+    "      '<td class=\"px-3 py-2\">' + esc(r.keyword) + '</td>' +",
+    "      '<td class=\"px-3 py-2\">' + esc(r.campaign) + '</td>' +",
+    "      '<td class=\"px-3 py-2\">' + esc(r.ad_group) + '</td>' +",
+    "      '<td class=\"px-3 py-2\"><span class=\"text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded\">' + esc(r.campaignType) + '</span></td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.impressions) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.clicks) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + r.ctr.toFixed(2) + '%</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.cost) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.cpc) + '</td>' +",
+    "      '</tr>';",
+    "  }",
+    "  function draw(){",
+    "    var filtered = currentType ? sorted.filter(function(r){ return r.campaignType === currentType; }) : sorted;",
+    "    if (filtered.length === 0){ tbody.innerHTML = '<tr><td colspan=\"9\" class=\"px-3 py-6 text-center text-slate-400\">데이터가 없습니다.</td></tr>'; moreBtn.hidden = true; return; }",
+    "    var list = expanded ? filtered : filtered.slice(0,10);",
+    "    tbody.innerHTML = list.map(rowHtml).join('');",
+    "    if (filtered.length <= 10){ moreBtn.hidden = true; } else {",
+    "      moreBtn.hidden = false;",
+    "      moreBtn.textContent = expanded ? '접기' : '더보기 (' + (filtered.length - 10) + '개 더 있음)';",
+    "    }",
+    "  }",
+    "  filterWrap.querySelectorAll('button').forEach(function(btn){",
+    "    btn.addEventListener('click', function(){",
+    "      filterWrap.querySelectorAll('button').forEach(function(b){ b.classList.remove('bg-blue-600','text-white'); b.classList.add('bg-slate-100','text-slate-600'); });",
+    "      btn.classList.remove('bg-slate-100','text-slate-600'); btn.classList.add('bg-blue-600','text-white');",
+    "      currentType = btn.dataset.type || '';",
+    "      expanded = false;",
+    "      draw();",
+    "    });",
+    "  });",
+    "  moreBtn.addEventListener('click', function(){ expanded = !expanded; draw(); });",
+    "  draw();",
+    "}",
+    "function renderCreativeSection(rows){",
+    "  var sorted = rows.slice().sort(function(a,b){ return b.revenue - a.revenue; });",
+    "  var tbody = document.getElementById('gfaCreativeTableBody');",
+    "  var moreBtn = document.getElementById('gfaCreativeMoreBtn');",
+    "  if (sorted.length === 0){ tbody.innerHTML = '<tr><td colspan=\"9\" class=\"px-3 py-6 text-center text-slate-400\">데이터가 없습니다.</td></tr>'; moreBtn.hidden = true; return; }",
+    "  var expanded = false;",
+    "  function rowHtml(r){",
+    "    return '<tr>' +",
+    "      '<td class=\"px-3 py-2\">' + esc(r.name) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.impressions) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.clicks) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + r.ctr.toFixed(2) + '%</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.cost) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.conversions) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + r.cvr.toFixed(2) + '%</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.revenue) + '</td>' +",
+    "      '<td class=\"px-3 py-2 text-right\">' + r.roas + '%</td>' +",
+    "      '</tr>';",
+    "  }",
+    "  function draw(){",
+    "    var list = expanded ? sorted : sorted.slice(0,10);",
+    "    tbody.innerHTML = list.map(rowHtml).join('');",
+    "    if (sorted.length <= 10){ moreBtn.hidden = true; } else {",
+    "      moreBtn.hidden = false;",
+    "      moreBtn.textContent = expanded ? '접기' : '더보기 (' + (sorted.length - 10) + '개 더 있음)';",
+    "    }",
+    "  }",
+    "  draw();",
+    "  moreBtn.addEventListener('click', function(){ expanded = !expanded; draw(); });",
+    "}",
+    "function setupReviewBox(id){",
+    "  var el = document.getElementById(id);",
+    "  var placeholder = el.textContent;",
+    "  el.addEventListener('focus', function(){ if (el.textContent === placeholder){ el.textContent = ''; } });",
+    "  el.addEventListener('blur', function(){ if (el.textContent.trim() === ''){ el.textContent = placeholder; } });",
+    "}",
+    "renderKpi('saKpiGrid', REPORT.sa.kpi);",
+    "renderKpi('gfaKpiGrid', REPORT.gfa.kpi);",
+    "renderProductSection('sa', REPORT.sa.products);",
+    "renderProductSection('gfa', REPORT.gfa.products);",
+    "renderKeywordSection(REPORT.sa.keywords);",
+    "renderCreativeSection(REPORT.gfa.creatives);",
+    "setupReviewBox('saReviewBox');",
+    "setupReviewBox('gfaReviewBox');"
+  ].join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeHtml(report.advertiserName)} 광고 운영 보고서</title>
+<script src="https://cdn.tailwindcss.com"><\/script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  html { scroll-behavior: smooth; }
+  section { scroll-margin-top: 5rem; }
+  body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; }
+  [contenteditable]:focus { outline: none; border-color: #60a5fa; }
+</style>
+</head>
+<body class="text-slate-800">
+  <div class="fixed top-4 right-4 flex gap-2 z-40">
+    <a href="#sa-section" class="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-full shadow-md hover:bg-blue-700">SA</a>
+    <a href="#gfa-section" class="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-full shadow-md hover:bg-indigo-700">GFA</a>
+  </div>
+
+  <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <header class="mb-12 border-b border-slate-200 pb-8">
+      <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">${escapeHtml(report.advertiserName)} 광고 운영 보고서</h1>
+      <p class="mt-2 text-slate-500">분석 기간: ${escapeHtml(report.periodLabel)} · 생성일: ${escapeHtml(report.generatedAt)}</p>
+    </header>
+
+    <section id="sa-section" class="mb-20">
+      <h2 class="text-2xl font-bold text-slate-900 mb-6">SA 성과 대시보드</h2>
+      <h3 class="text-sm font-bold text-slate-500 mb-3">핵심지표</h3>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8" id="saKpiGrid"></div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-12">
+        <h3 class="font-bold text-slate-800 mb-2">운영 리뷰</h3>
+        <p class="text-xs text-slate-400 mb-3">아래 영역을 클릭해 이번 기간 운영 리뷰를 작성하세요. 작성 후 브라우저에서 Ctrl+S(다른 이름으로 저장)로 다시 저장하면 내용이 그대로 보존됩니다.</p>
+        <div id="saReviewBox" contenteditable="true" class="min-h-[120px] rounded-lg border-2 border-dashed border-slate-300 p-4 text-sm text-slate-700">이번 기간 운영 리뷰를 입력하세요...</div>
+      </div>
+
+      <h2 class="text-2xl font-bold text-slate-900 mb-6">SA 상품별 데이터</h2>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h3 class="font-bold text-slate-700 mb-4 text-center">Top 5 상품 매출 비중</h3>
+          <div class="h-64 relative w-full"><canvas id="saDonutChart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h3 class="font-bold text-slate-700 mb-4 text-center">주요 5대 상품 전환율(CVR) & ROAS</h3>
+          <div class="h-64 relative w-full"><canvas id="saBarChart"></canvas></div>
+        </div>
+      </div>
+      <div class="flex justify-between items-end mb-4">
+        <h3 class="text-lg font-bold text-slate-900">전 품목 모델별 성과 상세</h3>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="saProductGrid"></div>
+      <div class="text-center mb-16">
+        <button id="saProductMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
+      </div>
+
+      <h2 class="text-2xl font-bold text-slate-900 mb-4">캠페인 유형별 키워드 데이터</h2>
+      <div class="flex gap-2 mb-4" id="saKeywordFilter">
+        <button type="button" data-type="" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-600 text-white">전체</button>
+        <button type="button" data-type="파워링크" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">파워링크</button>
+        <button type="button" data-type="쇼핑검색" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">쇼핑검색</button>
+        <button type="button" data-type="브랜드검색" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">브랜드검색</button>
+      </div>
+      <div class="overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
+        <table class="w-full text-sm text-left whitespace-nowrap">
+          <thead class="bg-slate-100 text-slate-600">
+            <tr>
+              <th class="px-3 py-3 font-bold">키워드</th>
+              <th class="px-3 py-3 font-bold">캠페인</th>
+              <th class="px-3 py-3 font-bold">그룹</th>
+              <th class="px-3 py-3 font-bold">캠페인 유형</th>
+              <th class="px-3 py-3 font-bold text-right">노출수</th>
+              <th class="px-3 py-3 font-bold text-right">클릭수</th>
+              <th class="px-3 py-3 font-bold text-right">CTR</th>
+              <th class="px-3 py-3 font-bold text-right">총비용</th>
+              <th class="px-3 py-3 font-bold text-right">CPC</th>
+            </tr>
+          </thead>
+          <tbody id="saKeywordTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+      <div class="text-center mt-4">
+        <button id="saKeywordMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
+      </div>
+    </section>
+
+    <section id="gfa-section" class="mb-16">
+      <h2 class="text-2xl font-bold text-slate-900 mb-6">GFA 성과 대시보드</h2>
+      <h3 class="text-sm font-bold text-slate-500 mb-3">핵심지표</h3>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8" id="gfaKpiGrid"></div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-12">
+        <h3 class="font-bold text-slate-800 mb-2">운영 리뷰</h3>
+        <p class="text-xs text-slate-400 mb-3">아래 영역을 클릭해 이번 기간 운영 리뷰를 작성하세요. 작성 후 브라우저에서 Ctrl+S(다른 이름으로 저장)로 다시 저장하면 내용이 그대로 보존됩니다.</p>
+        <div id="gfaReviewBox" contenteditable="true" class="min-h-[120px] rounded-lg border-2 border-dashed border-slate-300 p-4 text-sm text-slate-700">이번 기간 운영 리뷰를 입력하세요...</div>
+      </div>
+
+      <h2 class="text-2xl font-bold text-slate-900 mb-6">GFA 상품별 데이터 (ADVoost)</h2>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h3 class="font-bold text-slate-700 mb-4 text-center">Top 5 상품 매출 비중</h3>
+          <div class="h-64 relative w-full"><canvas id="gfaDonutChart"></canvas></div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h3 class="font-bold text-slate-700 mb-4 text-center">주요 5대 상품 전환율(CVR) & ROAS</h3>
+          <div class="h-64 relative w-full"><canvas id="gfaBarChart"></canvas></div>
+        </div>
+      </div>
+      <div class="flex justify-between items-end mb-4">
+        <h3 class="text-lg font-bold text-slate-900">전 품목 모델별 성과 상세</h3>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="gfaProductGrid"></div>
+      <div class="text-center mb-16">
+        <button id="gfaProductMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
+      </div>
+
+      <h2 class="text-2xl font-bold text-slate-900 mb-4">소재별 성과</h2>
+      <div class="overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
+        <table class="w-full text-sm text-left whitespace-nowrap">
+          <thead class="bg-slate-100 text-slate-600">
+            <tr>
+              <th class="px-3 py-3 font-bold">소재명</th>
+              <th class="px-3 py-3 font-bold text-right">노출수</th>
+              <th class="px-3 py-3 font-bold text-right">클릭수</th>
+              <th class="px-3 py-3 font-bold text-right">CTR</th>
+              <th class="px-3 py-3 font-bold text-right">총비용</th>
+              <th class="px-3 py-3 font-bold text-right">전환수</th>
+              <th class="px-3 py-3 font-bold text-right">CVR</th>
+              <th class="px-3 py-3 font-bold text-right">총매출</th>
+              <th class="px-3 py-3 font-bold text-right">ROAS</th>
+            </tr>
+          </thead>
+          <tbody id="gfaCreativeTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+      <div class="text-center mt-4">
+        <button id="gfaCreativeMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
+      </div>
+    </section>
+
+    <footer class="text-center text-sm text-slate-500 mt-12 border-t border-slate-200 pt-6 pb-8">
+      <p>본 보고서는 Linkprice 광고 운영 대시보드에서 생성되었습니다.</p>
+    </footer>
+  </div>
+
+  <script>
+${dataScript}
+${renderScript}
+  <\/script>
+</body>
+</html>`;
 }
 
 function showDashboard(advertiser) {
