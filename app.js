@@ -3792,14 +3792,202 @@ function showUploadStatus(statusEl, message, type) {
 }
 
 /* ---------------------------------------------------------
-   7-4. 파일 업로드 카드에 드래그 앤 드롭 지원
+   7-4. 파일 업로드 카드에 드래그 앤 드롭 지원 (+ 압축파일 자동 인식)
    ---------------------------------------------------------
-   file input이 있는 업로드 폼(GFA/SA raw 업로드, 상품 매핑, 상품코드-모델명 매핑)
-   전부에 공통으로 붙인다. 카드 위로 파일을 끌어다 놓으면 그 input에 파일을
-   채워넣고 change 이벤트를 그대로 발생시켜서, 클릭으로 선택했을 때와 동일하게
-   동작하게 한다 (업로드 버튼은 여전히 눌러야 한다 - 실수로 잘못 끌어다 놓고
-   바로 올라가버리는 걸 방지).
+   file input이 있는 업로드 폼(GFA/SA raw 업로드, 상품 매핑, 상품코드-모델명 매핑,
+   구매완료수 보정, 이베이/11번가) 전부에 공통으로 붙인다. 카드 위로 파일을 끌어다
+   놓으면 그 input에 파일을 채워넣는다 (업로드 버튼은 여전히 눌러야 한다 - 실수로
+   잘못 끌어다 놓고 바로 올라가버리는 걸 방지).
+
+   zip 파일을 놓거나 선택하면:
+   - 안에 CSV/엑셀이 1개뿐이면 그냥 그 파일을 꺼내서 이 카드에 넣어준다(수동 업로드는
+     그대로 필요).
+   - 여러 개면, 지금 보고 있는 뷰(#view-upload/#view-sa-upload/#view-channel-upload
+     등) 안의 업로드 카드들에 파일 형식(필수 컬럼)을 보고 자동으로 나눠서 업로드까지
+     바로 실행한다. 이베이/11번가처럼 카드끼리 컬럼 구조가 완전히 같은 경우(광고
+     유형 3개)는 내용만으로 구분이 안 되니, 파일명에 광고 유형 이름이 들어있는지로
+     구분한다 - 못 찾으면 자동 업로드하지 않고 안내만 한다.
 --------------------------------------------------------- */
+const ZIP_ENTRY_EXT_RE = /\.(csv|xlsx|xls)$/i;
+
+function isZipFile(file) {
+  return /\.zip$/i.test(file.name) || file.type === "application/zip" || file.type === "application/x-zip-compressed";
+}
+
+async function extractZipDataFiles(zipFile) {
+  const zip = await JSZip.loadAsync(zipFile);
+  const entries = [];
+  for (const relPath of Object.keys(zip.files)) {
+    const entry = zip.files[relPath];
+    if (entry.dir) continue;
+    const baseName = relPath.split("/").pop();
+    if (!baseName || baseName.startsWith(".") || relPath.includes("__MACOSX")) continue;
+    if (!ZIP_ENTRY_EXT_RE.test(baseName)) continue;
+    const blob = await entry.async("blob");
+    entries.push(new File([blob], baseName, { type: blob.type }));
+  }
+  return entries;
+}
+
+function setInputFile(input, file) {
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  input.files = dt.files;
+}
+
+function uploadCardOf(form) {
+  return form.closest(".upload-card, .channel-upload-card, .model-list-card");
+}
+
+function uploadCardLabelOf(form) {
+  const card = uploadCardOf(form);
+  return (
+    card?.querySelector(".upload-card-title, .model-list-title")?.textContent?.trim() ||
+    form.dataset.rawType ||
+    form.dataset.adType ||
+    "카드"
+  );
+}
+
+function uploadStatusElOf(form) {
+  return uploadCardOf(form)?.querySelector(".upload-status");
+}
+
+function isUploadFormVisible(form) {
+  const card = uploadCardOf(form);
+  return !card || !card.hidden;
+}
+
+// 압축 안의 파일이 이 카드(캠페인/그룹/ADV/소재 raw) 형식인지 파싱해보고, 아니면
+// (필수 컬럼을 못 찾으면) 에러를 던진다 - 그걸 "이 카드 아님" 신호로 쓴다.
+async function parseZipEntryForRawForm(form, file) {
+  const rawType = form.dataset.rawType;
+  const text = await readUploadFileAsCsvText(file);
+  const isSaRawType = rawType.startsWith("sa_");
+  let rows = isSaRawType
+    ? parseSaRawCsv(text, SA_RAW_TYPE_COLUMNS[rawType], SA_OPTIONAL_COLUMNS[rawType] || [])
+    : parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
+  if (rawType === "sa_campaign" || rawType === "sa_keyword") {
+    rows = normalizeSaCampaignTypeRows(rows);
+  }
+  if (rows.length === 0) throw new Error("업로드할 데이터가 없습니다.");
+  if (rows.length > GFA_MAX_UPLOAD_ROWS) {
+    throw new Error(`한 번에 최대 ${GFA_MAX_UPLOAD_ROWS}행까지 업로드할 수 있습니다.`);
+  }
+  return rows;
+}
+
+async function uploadZipEntryToChannelForm(form, file) {
+  const text = await readUploadFileAsCsvText(file);
+  const rows = parseChannelUploadCsv(text);
+  if (rows.length === 0) throw new Error("업로드할 데이터가 없습니다.");
+  if (rows.length > GFA_MAX_UPLOAD_ROWS) {
+    throw new Error(`한 번에 최대 ${GFA_MAX_UPLOAD_ROWS}행까지 업로드할 수 있습니다.`);
+  }
+  return uploadChannelData(form.dataset.channel, form.dataset.adType, rows);
+}
+
+// 압축파일 안에 여러 파일이 있을 때, 지금 뷰 안의 업로드 카드들에 자동으로 나눠서
+// 업로드한다. 각 카드의 statusEl에 결과를 남기고, 끝나면 요약을 alert로 보여준다.
+async function autoDispatchZipEntries(anchorEl, entries) {
+  const viewRoot = anchorEl.closest(".view") || document;
+  const rawForms = [...viewRoot.querySelectorAll(".upload-form[data-raw-type]")].filter(isUploadFormVisible);
+  const channelForms = [...viewRoot.querySelectorAll(".channel-upload-form")].filter(isUploadFormVisible);
+
+  const usedForms = new Set();
+  const succeeded = [];
+  const failed = [];
+  const unmatched = [];
+
+  for (const entry of entries) {
+    // 1) 이베이/11번가: 광고 유형 3개가 컬럼 구조는 똑같아서 파일명으로만 구분한다.
+    const byName = channelForms.find((f) => !usedForms.has(f) && entry.name.includes(f.dataset.adType));
+    if (byName) {
+      usedForms.add(byName);
+      try {
+        const result = await uploadZipEntryToChannelForm(byName, entry);
+        if (!result.success) throw new Error(result.message);
+        const statusEl = uploadStatusElOf(byName);
+        if (statusEl) {
+          showUploadStatus(statusEl, `압축파일에서 자동 인식: ${result.inserted}건 저장 (${result.dates_replaced.length}개 날짜 갱신)`, "success");
+        }
+        succeeded.push({ fileName: entry.name, cardLabel: uploadCardLabelOf(byName) });
+      } catch (err) {
+        const statusEl = uploadStatusElOf(byName);
+        if (statusEl) showUploadStatus(statusEl, err.message || "업로드 중 오류가 발생했습니다.", "error");
+        failed.push({ fileName: entry.name, cardLabel: uploadCardLabelOf(byName), message: err.message });
+      }
+      continue;
+    }
+
+    // 2) 캠페인/그룹/ADV/소재/키워드/상품 raw: 필수 컬럼 구조로 자동 판별.
+    let matched = false;
+    for (const form of rawForms) {
+      if (usedForms.has(form)) continue;
+      let rows;
+      try {
+        rows = await parseZipEntryForRawForm(form, entry);
+      } catch {
+        continue; // 이 카드 형식이 아님 - 다음 후보 카드로
+      }
+      usedForms.add(form);
+      matched = true;
+      try {
+        const result = await uploadGfaData(form.dataset.rawType, rows);
+        if (!result.success) throw new Error(result.message);
+        const statusEl = uploadStatusElOf(form);
+        if (statusEl) {
+          showUploadStatus(statusEl, `압축파일에서 자동 인식: ${result.inserted}건 저장 (${result.dates_replaced.length}개 날짜 갱신)`, "success");
+        }
+        succeeded.push({ fileName: entry.name, cardLabel: uploadCardLabelOf(form) });
+      } catch (err) {
+        const statusEl = uploadStatusElOf(form);
+        if (statusEl) showUploadStatus(statusEl, err.message || "업로드 중 오류가 발생했습니다.", "error");
+        failed.push({ fileName: entry.name, cardLabel: uploadCardLabelOf(form), message: err.message });
+      }
+      break;
+    }
+    if (!matched) unmatched.push(entry.name);
+  }
+
+  let summary = `압축파일 처리 완료: ${entries.length}개 파일 중 ${succeeded.length}개 자동 업로드됨.`;
+  if (failed.length > 0) {
+    summary += "\n\n실패:\n" + failed.map((r) => `- ${r.fileName} (${r.cardLabel}): ${r.message}`).join("\n");
+  }
+  if (unmatched.length > 0) {
+    summary += "\n\n어느 카드 형식인지 인식하지 못한 파일:\n" + unmatched.map((n) => `- ${n}`).join("\n") +
+      "\n해당 파일은 알맞은 카드에 직접 올려주세요.";
+  }
+  alert(summary);
+}
+
+// zip 파일을 받았을 때: 안에 CSV/엑셀이 1개면 그 파일을 카드에 꺼내주고, 여러 개면
+// 이 뷰 전체에 자동으로 나눠서 업로드한다.
+async function handleZipFileForCard(form, fileInput, dropZone, zipFile) {
+  const statusEl = uploadStatusElOf(form);
+  let entries;
+  try {
+    entries = await extractZipDataFiles(zipFile);
+  } catch {
+    if (statusEl) showUploadStatus(statusEl, "압축파일을 여는 중 오류가 발생했습니다.", "error");
+    return;
+  }
+
+  if (entries.length === 0) {
+    if (statusEl) showUploadStatus(statusEl, "압축파일 안에 CSV/엑셀 파일이 없습니다.", "error");
+    return;
+  }
+
+  if (entries.length === 1) {
+    setInputFile(fileInput, entries[0]);
+    if (statusEl) showUploadStatus(statusEl, `압축 해제됨: ${entries[0].name} (업로드 버튼을 눌러주세요)`, "success");
+    return;
+  }
+
+  fileInput.value = "";
+  await autoDispatchZipEntries(dropZone, entries);
+}
+
 document.querySelectorAll(".upload-form").forEach((form) => {
   const fileInput = form.querySelector('input[type="file"]');
   if (!fileInput) return;
@@ -3823,14 +4011,25 @@ document.querySelectorAll(".upload-form").forEach((form) => {
     });
   });
 
-  dropZone.addEventListener("drop", (e) => {
+  dropZone.addEventListener("drop", async (e) => {
     const droppedFiles = e.dataTransfer?.files;
     if (!droppedFiles || droppedFiles.length === 0) return;
+    const file = droppedFiles[0];
 
-    const dt = new DataTransfer();
-    dt.items.add(droppedFiles[0]);
-    fileInput.files = dt.files;
-    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    if (isZipFile(file)) {
+      await handleZipFileForCard(form, fileInput, dropZone, file);
+      return;
+    }
+
+    setInputFile(fileInput, file);
+  });
+
+  // 파일 선택창(클릭)으로 zip을 고른 경우도 드래그드롭과 동일하게 처리한다.
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (file && isZipFile(file)) {
+      await handleZipFileForCard(form, fileInput, dropZone, file);
+    }
   });
 });
 

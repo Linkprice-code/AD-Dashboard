@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
 
@@ -423,6 +424,8 @@
         <p class="upload-intro">
           <b>날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</b> 7개 컬럼의 CSV(또는 엑셀)를 업로드하세요.
           같은 날짜로 다시 업로드하면 그 날짜의 기존 데이터는 새로 올린 내용으로 교체됩니다.
+          광고 유형별 파일 여러 개를 압축(zip)해서 올리면, 파일명에 광고 유형 이름(예: "직접운영형")이
+          들어있는 경우 알맞은 카드로 자동 인식해서 업로드합니다.
         </p>
 
         <div class="upload-grid">
@@ -433,7 +436,7 @@
             <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
             <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form channel-upload-form" data-channel="EBAY" data-ad-type="통합운영형">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -444,7 +447,7 @@
             <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
             <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form channel-upload-form" data-channel="EBAY" data-ad-type="집중운영형">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -455,7 +458,7 @@
             <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
             <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form channel-upload-form" data-channel="EBAY" data-ad-type="직접운영형">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -467,7 +470,7 @@
             <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
             <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form channel-upload-form" data-channel="ELEVENST" data-ad-type="포커스클릭">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -478,7 +481,7 @@
             <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
             <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form channel-upload-form" data-channel="ELEVENST" data-ad-type="AI캠페인">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -489,7 +492,7 @@
             <code class="upload-columns">날짜, 캠페인, 노출수, 클릭수, 광고비, 전환수, 전환매출</code>
             <a href="#" class="upload-template-link" download="channel_upload_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form channel-upload-form" data-channel="ELEVENST" data-ad-type="전시입찰광고">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -586,7 +589,7 @@
             (소재ID/기본상품명 포함, 쇼핑검색 상품별 성과 매칭에 쓰입니다).
           </span>
           <form class="upload-form" id="productMappingUploadForm">
-            <input type="file" class="upload-file-input" id="productMappingFileInput" accept=".csv,.xlsx,.xls" required>
+            <input type="file" class="upload-file-input" id="productMappingFileInput" accept=".csv,.xlsx,.xls,.zip" required>
             <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
           </form>
           <p class="upload-status" id="productMappingUploadStatus" hidden></p>
@@ -600,7 +603,7 @@
             않는 상품은 기존처럼 기본상품명으로 표시됩니다).
           </span>
           <form class="upload-form" id="productModelMappingUploadForm">
-            <input type="file" class="upload-file-input" id="productModelMappingFileInput" accept=".csv,.xlsx,.xls" required>
+            <input type="file" class="upload-file-input" id="productModelMappingFileInput" accept=".csv,.xlsx,.xls,.zip" required>
             <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
           </form>
           <p class="upload-status" id="productModelMappingUploadStatus" hidden></p>
@@ -668,7 +671,7 @@
             <code class="upload-columns">기간, 캠페인 이름, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="campaign" download="gfa_campaign_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="campaign">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -679,7 +682,7 @@
             <code class="upload-columns">기간, 캠페인 이름, 광고 그룹 이름, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="adgroup" download="gfa_adgroup_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="adgroup">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -690,7 +693,7 @@
             <code class="upload-columns">기간, 상품명, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="adv" download="gfa_adv_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="adv">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -701,7 +704,7 @@
             <code class="upload-columns">기간, 소재 이름, 노출수, 클릭수, 총비용, 구매완료 수, 구매완료 전환매출액</code>
             <a class="upload-template-link" data-template="creative" download="gfa_creative_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="creative">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -711,7 +714,8 @@
 
         <p class="upload-note">
           같은 종류(캠페인/그룹/ADV)에서 같은 날짜(기간)로 다시 업로드하면, 그 날짜의 기존 데이터는
-          새 데이터로 교체됩니다 (중복 누적 방지).
+          새 데이터로 교체됩니다 (중복 누적 방지). 여러 리포트 파일을 압축(zip)해서 올리면
+          파일 형식을 보고 알맞은 카드에 자동으로 나눠서 업로드합니다.
         </p>
       </div>
 
@@ -734,7 +738,7 @@
             <span class="breakdown-hint">성과 대시보드 / 캠페인 유형별 성과 / 캠페인별 성과에 쓰입니다.</span>
             <a class="upload-template-link" data-template="sa_campaign" download="sa_campaign_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="sa_campaign">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -746,7 +750,7 @@
             <span class="breakdown-hint">파워링크/쇼핑검색/브랜드검색 메뉴의 키워드별 성과 표에 쓰입니다. "캠페인" 컬럼은 없어도 됩니다.</span>
             <a class="upload-template-link" data-template="sa_keyword" download="sa_keyword_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="sa_keyword">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -761,7 +765,7 @@
             </span>
             <a class="upload-template-link" data-template="sa_product" download="sa_product_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="sa_product">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -773,7 +777,7 @@
             <span class="breakdown-hint">성과 대시보드의 "그룹별" 탭에 쓰입니다. 캠페인/캠페인유형 컬럼은 없어도 됩니다.</span>
             <a class="upload-template-link" data-template="sa_adgroup" download="sa_adgroup_raw_template.csv">CSV 템플릿 다운로드</a>
             <form class="upload-form" data-raw-type="sa_adgroup">
-              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls" required>
+              <input type="file" class="upload-file-input" accept=".csv,.xlsx,.xls,.zip" required>
               <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
             </form>
             <p class="upload-status" hidden></p>
@@ -783,7 +787,8 @@
 
         <p class="upload-note">
           같은 종류(캠페인/키워드/상품/그룹)에서 같은 날짜(또는 시작일)로 다시 업로드하면,
-          그 데이터는 새 데이터로 교체됩니다 (중복 누적 방지).
+          그 데이터는 새 데이터로 교체됩니다 (중복 누적 방지). 여러 리포트 파일을 압축(zip)해서
+          올리면 파일 형식을 보고 알맞은 카드에 자동으로 나눠서 업로드합니다.
         </p>
       </div>
 
@@ -802,7 +807,7 @@
 
           <span class="breakdown-hint"><b>파일로 한 번에 올리기</b> - 네이버에서 다운받은 "캠페인 유형별 구매완료수" 리포트(일별, 캠페인유형, 구매완료 전환수)를 그대로 올리면 됩니다. 다시 올리면 기존 보정값 전체가 새 파일 내용으로 교체됩니다.</span>
           <form class="upload-form" id="conversionOverrideUploadForm">
-            <input type="file" class="upload-file-input" id="conversionOverrideFileInput" accept=".csv,.xlsx,.xls" required>
+            <input type="file" class="upload-file-input" id="conversionOverrideFileInput" accept=".csv,.xlsx,.xls,.zip" required>
             <button type="submit" class="btn-primary upload-submit-btn">파일 업로드</button>
           </form>
           <p class="upload-status" id="conversionOverrideUploadStatus" hidden></p>
