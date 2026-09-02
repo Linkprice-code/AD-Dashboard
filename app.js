@@ -445,6 +445,107 @@ async function fetchSaKeywordPerformance(campaignType, { dateFrom, dateTo } = {}
   return payload;
 }
 
+async function callSaKeywordPerformanceRaw(body) {
+  const session = getSession();
+  if (!session) {
+    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
+  }
+
+  let res;
+  try {
+    res = await fetch(SA_KEYWORD_PERFORMANCE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
+        "apikey": SUPABASE_CONFIG.anonKey,
+        "X-Session-Token": session.token
+      },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
+  }
+
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
+  }
+
+  if (!res.ok || !payload.success) {
+    return { success: false, message: payload.message || "데이터를 불러오지 못했습니다." };
+  }
+
+  return payload;
+}
+
+// 파워링크/쇼핑검색처럼 캠페인이 많으면(또는 캠페인 하나에 키워드가 아주 많으면) 한
+// 번에 다 훑다가 sa-keyword-performance가 Edge Function 컴퓨트(CPU 시간) 한도를 넘겨서
+// 실패하는 경우가 있다(HTML 보고서에서 발견됨 - 브랜드검색만 캠페인이 적어서 항상
+// 성공하고, 나머지 두 유형은 종종 통째로 빠졌었다. 캠페인 5개씩 묶어도 여전히 실패하는
+// 경우가 있어서 - 캠페인 1개당 키워드 수가 워낙 많음 - 결국 캠페인 1개 단위까지
+// 잘게 쪼갰다). 그래서 캠페인 id 목록만 먼저 가볍게 받은 뒤, 캠페인 1개씩 따로 호출해서
+// 합친다. 실패하는 캠페인이 있어도 나머지는 계속 진행하고(부분 데이터가 전체 실패보다
+// 낫다), 한 번 실패한 캠페인은 1번 더 재시도한다(일시적인 부하일 수 있어서).
+// 순서대로 하나씩 부르면 너무 오래 걸려서, 몇 개씩 동시에(CONCURRENCY) 진행한다.
+const SA_KEYWORD_CAMPAIGN_CHUNK_SIZE = 1;
+const SA_KEYWORD_CONCURRENCY = 3;
+
+async function fetchSaKeywordCampaignWithRetry(campaignType, dateFrom, dateTo, campaignId) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await callSaKeywordPerformanceRaw({
+      campaign_type: campaignType,
+      date_from: dateFrom,
+      date_to: dateTo,
+      campaign_ids: [campaignId]
+    });
+    if (result.success) return result;
+    if (attempt === 0) {
+      console.error(`[fetchSaKeywordPerformanceChunked] ${campaignType} 캠페인(${campaignId}) 1차 실패, 재시도:`, result.message);
+    } else {
+      console.error(`[fetchSaKeywordPerformanceChunked] ${campaignType} 캠페인(${campaignId}) 재시도도 실패:`, result.message);
+      return result;
+    }
+  }
+}
+
+async function fetchSaKeywordPerformanceChunked(campaignType, { dateFrom, dateTo } = {}) {
+  const listResult = await callSaKeywordPerformanceRaw({
+    campaign_type: campaignType,
+    date_from: dateFrom,
+    date_to: dateTo,
+    list_only: true
+  });
+  if (!listResult.success) return listResult;
+
+  const campaignIds = listResult.campaign_ids || [];
+  if (campaignIds.length === 0) return { success: true, rows: [] };
+
+  const rows = [];
+  let anySucceeded = false;
+  let lastMessage = "";
+  let cursor = 0;
+  async function worker() {
+    while (cursor < campaignIds.length) {
+      const campaignId = campaignIds[cursor++];
+      const result = await fetchSaKeywordCampaignWithRetry(campaignType, dateFrom, dateTo, campaignId);
+      if (result.success) {
+        anySucceeded = true;
+        rows.push(...result.rows);
+      } else {
+        lastMessage = result.message;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(SA_KEYWORD_CONCURRENCY, campaignIds.length) }, worker));
+
+  if (!anySucceeded) return { success: false, message: lastMessage || "데이터를 불러오지 못했습니다." };
+  rows.sort((a, b) => b.cost - a.cost);
+  return { success: true, rows };
+}
+
 // sa-keyword-performance(API 실시간 조회)의 수기 업로드 버전. sa_keyword_raw에서
 // 조회하며, 응답 모양이 같아서 renderKeywordTable() 등 렌더링 코드는 그대로 재사용한다.
 async function fetchSaManualKeywordPerformance(campaignType, { dateFrom, dateTo } = {}) {
@@ -503,6 +604,16 @@ function fetchSaKeywordPerformanceAny(campaignType, opts) {
     return fetchSaManualKeywordPerformance(campaignType, opts);
   }
   return fetchSaKeywordPerformance(campaignType, opts);
+}
+
+// HTML 보고서용 - API 모드는 캠페인 단위로 나눠서 조회하는 fetchSaKeywordPerformanceChunked를
+// 쓰고(대량 캠페인에서도 안정적으로 전부 받아오기 위해), 수기 업로드 모드는 어차피 DB
+// 조회라 그럴 필요가 없어 기존 함수를 그대로 쓴다.
+function fetchSaKeywordPerformanceChunkedAny(campaignType, opts) {
+  if (state.saMode === "manual") {
+    return fetchSaManualKeywordPerformance(campaignType, opts);
+  }
+  return fetchSaKeywordPerformanceChunked(campaignType, opts);
 }
 
 // sa-product-performance(API 모드)의 수기 업로드 버전. sa_product_raw는 상품명이 아니라
@@ -1420,10 +1531,14 @@ async function generateHtmlReport() {
 
   try {
     const { from, to } = state.analysisPeriod;
+    const { from: compareFrom, to: compareTo } = state.comparisonPeriod;
+    const hasComparePeriod = Boolean(compareFrom && compareTo);
     const advertiserName = advertiserNameEl.textContent || "광고주";
+    const zeroTotals = { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 };
 
     const [
       saTypeResult,
+      saCompareTypeResult,
       saProductResult,
       ...saKeywordResults
     ] = await Promise.all([
@@ -1431,35 +1546,44 @@ async function generateHtmlReport() {
       // 보정값(sa_conversion_overrides)이 반영된다 (sa-performance는 group_by="type"일
       // 때만 보정값을 더해준다 - renderSaOverview의 성과 대시보드 KPI와 동일한 방식).
       fetchSaPerformanceAny("type", { dateFrom: from, dateTo: to }),
+      hasComparePeriod ? fetchSaPerformanceAny("type", { dateFrom: compareFrom, dateTo: compareTo }) : Promise.resolve({ success: false }),
       fetchSaProductPerformanceAny({ dateFrom: from, dateTo: to }),
-      ...SA_KEYWORD_CAMPAIGN_TYPES.map((t) => fetchSaKeywordPerformanceAny(t.code, { dateFrom: from, dateTo: to }))
+      ...SA_KEYWORD_CAMPAIGN_TYPES.map((t) => fetchSaKeywordPerformanceChunkedAny(t.code, { dateFrom: from, dateTo: to }))
     ]);
 
-    const [gfaCampaignResult, gfaAdvResult, gfaCreativeResult] = await Promise.all([
+    const [gfaCampaignResult, gfaCompareCampaignResult, gfaAdvResult, gfaCreativeResult] = await Promise.all([
       fetchGfaPerformance("campaign", { dateFrom: from, dateTo: to }),
+      hasComparePeriod ? fetchGfaPerformance("campaign", { dateFrom: compareFrom, dateTo: compareTo }) : Promise.resolve({ success: false }),
       fetchGfaPerformance("adv", { dateFrom: from, dateTo: to }),
       fetchGfaPerformance("creative", { dateFrom: from, dateTo: to })
     ]);
 
     const saKeywords = [];
+    const saKeywordFailures = [];
     SA_KEYWORD_CAMPAIGN_TYPES.forEach((t, i) => {
       const r = saKeywordResults[i];
       if (r.success) {
         r.rows.forEach((row) => saKeywords.push({ ...row, campaignType: t.label }));
+      } else {
+        saKeywordFailures.push(t.label);
       }
     });
 
     const report = {
       advertiserName,
       periodLabel: formatPeriodRange(state.analysisPeriod),
+      comparePeriodLabel: hasComparePeriod ? formatPeriodRange(state.comparisonPeriod) : null,
       generatedAt: new Date().toISOString().slice(0, 10),
       sa: {
-        kpi: withDerivedMetrics(saTypeResult.success ? sumRawTotals(saTypeResult.rows) : { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }),
+        kpi: withDerivedMetrics(saTypeResult.success ? sumRawTotals(saTypeResult.rows) : zeroTotals),
+        compareKpi: saCompareTypeResult.success ? withDerivedMetrics(sumRawTotals(saCompareTypeResult.rows)) : null,
         products: saProductResult.success ? saProductResult.rows.map((r) => ({ name: r.name, impressions: r.impressions, clicks: r.clicks, cost: r.cost, conversions: r.conversions, revenue: r.revenue, ctr: r.ctr, cvr: r.cvr, roas: r.roas })) : [],
-        keywords: saKeywords
+        keywords: saKeywords,
+        keywordFailures: saKeywordFailures
       },
       gfa: {
-        kpi: withDerivedMetrics(gfaCampaignResult.success ? sumRawTotals(gfaCampaignResult.rows) : { impressions: 0, clicks: 0, cost: 0, conversions: 0, revenue: 0 }),
+        kpi: withDerivedMetrics(gfaCampaignResult.success ? sumRawTotals(gfaCampaignResult.rows) : zeroTotals),
+        compareKpi: gfaCompareCampaignResult.success ? withDerivedMetrics(sumRawTotals(gfaCompareCampaignResult.rows)) : null,
         products: gfaAdvResult.success ? gfaAdvResult.rows.map((r) => ({ name: extractModelCodeFromProductName(r.name) || r.name, impressions: r.impressions, clicks: r.clicks, cost: r.cost, conversions: r.conversions, revenue: r.revenue, ctr: r.ctr, cvr: r.cvr, roas: r.roas })) : [],
         creatives: gfaCreativeResult.success ? gfaCreativeResult.rows.map((r) => ({ name: r.name, impressions: r.impressions, clicks: r.clicks, cost: r.cost, conversions: r.conversions, revenue: r.revenue, ctr: r.ctr, cvr: r.cvr, roas: r.roas })) : []
       }
@@ -1505,14 +1629,27 @@ function buildReportHtmlDocument(report) {
     "  {key:'roas', label:'ROAS', fmt:function(n){return n+'%';}},",
     "  {key:'cpa', label:'전환당비용', fmt:fmtWon}",
     "];",
-    "function renderKpi(gridId, kpi){",
+    // 대시보드의 buildDeltaHtml(app.js)과 같은 규칙 - 비교기간 값이 있을 때만 증감율 배지를 보여준다.
+    "function deltaHtml(current, previous){",
+    "  if (previous == null) return '';",
+    "  if (!previous) return current ? '<span class=\"kpi-sub up\">신규</span>' : '';",
+    "  var change = ((current - previous) / previous) * 100;",
+    "  if (Math.abs(change) < 0.05) return '<span class=\"kpi-sub\">변동 없음</span>';",
+    "  var dir = change > 0 ? 'up' : 'down';",
+    "  var arrow = change > 0 ? '▲' : '▼';",
+    "  var word = change > 0 ? '증가' : '감소';",
+    "  return '<span class=\"kpi-sub ' + dir + '\">' + arrow + ' ' + Math.abs(change).toFixed(1) + '% ' + word + '</span>';",
+    "}",
+    "function renderKpi(gridId, kpi, compareKpi){",
     "  var el = document.getElementById(gridId);",
     "  var html = '';",
     "  for (var i=0;i<KPI_DEFS.length;i++){",
     "    var d = KPI_DEFS[i];",
-    "    html += '<div class=\"bg-white rounded-xl shadow-sm border border-slate-200 p-4\">' +",
-    "      '<p class=\"text-xs text-slate-500 font-medium\">' + d.label + '</p>' +",
-    "      '<p class=\"text-xl font-bold text-slate-900 mt-1\">' + d.fmt(kpi[d.key]) + '</p>' +",
+    "    var sub = compareKpi ? deltaHtml(kpi[d.key], compareKpi[d.key]) : '';",
+    "    html += '<div class=\"kpi-card\">' +",
+    "      '<span class=\"kpi-label\">' + d.label + '</span>' +",
+    "      '<span class=\"kpi-value\">' + d.fmt(kpi[d.key]) + '</span>' +",
+    "      sub +",
     "      '</div>';",
     "  }",
     "  el.innerHTML = html;",
@@ -1522,7 +1659,7 @@ function buildReportHtmlDocument(report) {
     "}",
     "function renderProductCharts(prefix, products){",
     "  var top5 = top5ByRevenue(products);",
-    "  var colors = ['#2563eb','#38bdf8','#22c55e','#f59e0b','#a855f7'];",
+    "  var colors = ['#2563eb','#38bdf8','#16a34a','#f59e0b','#7c3aed'];",
     "  var total = top5.reduce(function(s,m){ return s + m.revenue; }, 0);",
     "  var pctOf = function(rev){ return total > 0 ? ((rev/total)*100).toFixed(1) : '0.0'; };",
     "  new Chart(document.getElementById(prefix + 'DonutChart'), {",
@@ -1531,36 +1668,39 @@ function buildReportHtmlDocument(report) {
     "      labels: top5.map(function(m){ return m.name + ' (' + pctOf(m.revenue) + '%)'; }),",
     "      datasets: [{ data: top5.map(function(m){ return m.revenue; }), backgroundColor: colors, borderWidth: 0 }]",
     "    },",
-    "    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:12} } } } }",
+    "    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ boxWidth:12, font:{size:11, family:'Pretendard'}, color:'#6b7280' } } } }",
     "  });",
     "  new Chart(document.getElementById(prefix + 'BarChart'), {",
     "    data: {",
     "      labels: top5.map(function(m){ return m.name; }),",
     "      datasets: [",
-    "        { type:'bar', label:'전환율(CVR) %', data: top5.map(function(m){ return Number(m.cvr.toFixed(1)); }), backgroundColor:'#2563eb', yAxisID:'y' },",
-    "        { type:'line', label:'ROAS (천%)', data: top5.map(function(m){ return Number((m.roas/1000).toFixed(1)); }), borderColor:'#ef4444', backgroundColor:'#ef4444', yAxisID:'y1', tension:0.3 }",
+    "        { type:'bar', label:'전환율(CVR) %', data: top5.map(function(m){ return Number(m.cvr.toFixed(1)); }), backgroundColor:'#2563eb', yAxisID:'y', borderRadius:4 },",
+    "        { type:'line', label:'ROAS (천%)', data: top5.map(function(m){ return Number((m.roas/1000).toFixed(1)); }), borderColor:'#dc2626', backgroundColor:'#dc2626', yAxisID:'y1', tension:0.3 }",
     "      ]",
     "    },",
     "    options: {",
     "      responsive:true, maintainAspectRatio:false,",
-    "      plugins:{ legend:{ position:'top', labels:{ boxWidth:12, font:{size:11} } } },",
+    "      plugins:{ legend:{ position:'top', labels:{ boxWidth:12, font:{size:11, family:'Pretendard'}, color:'#6b7280' } } },",
     "      scales:{",
-    "        y:{ position:'left', title:{display:true, text:'CVR (%)'}, grid:{ color:'rgba(0,0,0,0.05)' } },",
-    "        y1:{ position:'right', title:{display:true, text:'ROAS (천%)'}, grid:{ drawOnChartArea:false } }",
+    "        y:{ position:'left', title:{display:true, text:'CVR (%)', color:'#9aa3b5'}, grid:{ color:'#e4e8f0' }, ticks:{ color:'#6b7280' } },",
+    "        y1:{ position:'right', title:{display:true, text:'ROAS (천%)', color:'#9aa3b5'}, grid:{ drawOnChartArea:false }, ticks:{ color:'#6b7280' } },",
+    "        x:{ ticks:{ color:'#6b7280' } }",
     "      }",
     "    }",
     "  });",
     "}",
     "function productCardHtml(p){",
-    "  return '<div class=\"bg-white rounded-xl shadow-sm border border-slate-200 p-5\">' +",
-    "    '<h3 class=\"text-base font-bold text-slate-800 mb-2\">' + esc(p.name) + '</h3>' +",
-    "    '<div class=\"bg-slate-50 rounded-lg p-3 text-xs text-slate-700 grid grid-cols-2 gap-y-2 mb-3 border border-slate-100\">' +",
-    "      '<div><span class=\"text-slate-400\">노출수:</span> ' + fmtNum(p.impressions) + '</div>' +",
-    "      '<div><span class=\"text-slate-400\">클릭수:</span> ' + fmtNum(p.clicks) + '</div>' +",
-    "      '<div><span class=\"text-slate-400\">총비용:</span> ' + fmtWon(p.cost) + '</div>' +",
-    "      '<div><span class=\"text-slate-400\">전환수:</span> ' + fmtNum(p.conversions) + '건</div>' +",
-    "      '<div class=\"col-span-2 pt-2 border-t border-slate-200 text-sm\"><span class=\"text-slate-400\">총매출:</span> <span class=\"font-bold text-slate-900\">' + fmtWon(p.revenue) + '</span></div>' +",
-    "      '<div class=\"col-span-2 flex justify-between font-bold\"><span><span class=\"text-slate-400 font-normal\">CVR:</span> <span class=\"text-blue-600\">' + fmtPct(p.cvr) + '</span></span><span><span class=\"text-slate-400 font-normal\">ROAS:</span> <span class=\"text-indigo-600\">' + p.roas + '%</span></span></div>' +",
+    "  return '<div class=\"model-card\">' +",
+    "    '<div class=\"model-card-name\">' + esc(p.name) + '</div>' +",
+    "    '<div class=\"model-card-metrics\">' +",
+    "      '<div><span class=\"model-metric-label\">노출수</span><span class=\"model-metric-value\">' + fmtNum(p.impressions) + '</span></div>' +",
+    "      '<div><span class=\"model-metric-label\">클릭수</span><span class=\"model-metric-value\">' + fmtNum(p.clicks) + '</span></div>' +",
+    "      '<div><span class=\"model-metric-label\">총비용</span><span class=\"model-metric-value\">' + fmtWon(p.cost) + '</span></div>' +",
+    "      '<div><span class=\"model-metric-label\">전환수</span><span class=\"model-metric-value\">' + fmtNum(p.conversions) + '건</span></div>' +",
+    "    '</div>' +",
+    "    '<div class=\"model-card-bottom\">' +",
+    "      '<div><span class=\"model-metric-label\">총매출</span><span class=\"model-metric-value strong\">' + fmtWon(p.revenue) + '</span></div>' +",
+    "      '<div class=\"model-card-bottom-right\"><span class=\"model-metric-label\">CVR ' + fmtPct(p.cvr) + '</span><span class=\"model-metric-value accent\">ROAS ' + p.roas + '%</span></div>' +",
     "    '</div>' +",
     "  '</div>';",
     "}",
@@ -1568,7 +1708,7 @@ function buildReportHtmlDocument(report) {
     "  var sorted = products.slice().sort(function(a,b){ return b.revenue - a.revenue; });",
     "  var grid = document.getElementById(prefix + 'ProductGrid');",
     "  var moreBtn = document.getElementById(prefix + 'ProductMoreBtn');",
-    "  if (sorted.length === 0){ grid.innerHTML = '<p class=\"text-sm text-slate-400\">표시할 상품 데이터가 없습니다.</p>'; moreBtn.hidden = true; return; }",
+    "  if (sorted.length === 0){ grid.innerHTML = '<p class=\"empty-hint\">표시할 상품 데이터가 없습니다.</p>'; moreBtn.hidden = true; return; }",
     "  renderProductCharts(prefix, sorted);",
     "  var expanded = false;",
     "  function draw(){",
@@ -1586,29 +1726,34 @@ function buildReportHtmlDocument(report) {
     "    });",
     "  }",
     "}",
-    "function renderKeywordSection(rows){",
+    "function renderKeywordSection(rows, failures){",
     "  var sorted = rows.slice().sort(function(a,b){ return b.cost - a.cost; });",
     "  var tbody = document.getElementById('saKeywordTableBody');",
     "  var moreBtn = document.getElementById('saKeywordMoreBtn');",
     "  var filterWrap = document.getElementById('saKeywordFilter');",
+    "  var noticeEl = document.getElementById('saKeywordNotice');",
+    "  if (failures && failures.length > 0) {",
+    "    noticeEl.hidden = false;",
+    "    noticeEl.textContent = failures.join(', ') + ' 유형은 이번 생성 시 네이버 API 응답 지연으로 불러오지 못했습니다. 잠시 후 다시 다운로드해주세요.';",
+    "  }",
     "  var currentType = '';",
     "  var expanded = false;",
     "  function rowHtml(r){",
     "    return '<tr>' +",
-    "      '<td class=\"px-3 py-2\">' + esc(r.keyword) + '</td>' +",
-    "      '<td class=\"px-3 py-2\">' + esc(r.campaign) + '</td>' +",
-    "      '<td class=\"px-3 py-2\">' + esc(r.ad_group) + '</td>' +",
-    "      '<td class=\"px-3 py-2\"><span class=\"text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded\">' + esc(r.campaignType) + '</span></td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.impressions) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.clicks) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + r.ctr.toFixed(2) + '%</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.cost) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.cpc) + '</td>' +",
+    "      '<td>' + esc(r.keyword) + '</td>' +",
+    "      '<td>' + esc(r.campaign) + '</td>' +",
+    "      '<td>' + esc(r.ad_group) + '</td>' +",
+    "      '<td><span class=\"pill-tag\">' + esc(r.campaignType) + '</span></td>' +",
+    "      '<td>' + fmtNum(r.impressions) + '</td>' +",
+    "      '<td>' + fmtNum(r.clicks) + '</td>' +",
+    "      '<td>' + r.ctr.toFixed(2) + '%</td>' +",
+    "      '<td>' + fmtWon(r.cost) + '</td>' +",
+    "      '<td>' + fmtWon(r.cpc) + '</td>' +",
     "      '</tr>';",
     "  }",
     "  function draw(){",
     "    var filtered = currentType ? sorted.filter(function(r){ return r.campaignType === currentType; }) : sorted;",
-    "    if (filtered.length === 0){ tbody.innerHTML = '<tr><td colspan=\"9\" class=\"px-3 py-6 text-center text-slate-400\">데이터가 없습니다.</td></tr>'; moreBtn.hidden = true; return; }",
+    "    if (filtered.length === 0){ tbody.innerHTML = '<tr><td colspan=\"9\" class=\"empty-cell\">데이터가 없습니다.</td></tr>'; moreBtn.hidden = true; return; }",
     "    var list = expanded ? filtered : filtered.slice(0,10);",
     "    tbody.innerHTML = list.map(rowHtml).join('');",
     "    if (filtered.length <= 10){ moreBtn.hidden = true; } else {",
@@ -1618,8 +1763,8 @@ function buildReportHtmlDocument(report) {
     "  }",
     "  filterWrap.querySelectorAll('button').forEach(function(btn){",
     "    btn.addEventListener('click', function(){",
-    "      filterWrap.querySelectorAll('button').forEach(function(b){ b.classList.remove('bg-blue-600','text-white'); b.classList.add('bg-slate-100','text-slate-600'); });",
-    "      btn.classList.remove('bg-slate-100','text-slate-600'); btn.classList.add('bg-blue-600','text-white');",
+    "      filterWrap.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });",
+    "      btn.classList.add('active');",
     "      currentType = btn.dataset.type || '';",
     "      expanded = false;",
     "      draw();",
@@ -1632,19 +1777,19 @@ function buildReportHtmlDocument(report) {
     "  var sorted = rows.slice().sort(function(a,b){ return b.revenue - a.revenue; });",
     "  var tbody = document.getElementById('gfaCreativeTableBody');",
     "  var moreBtn = document.getElementById('gfaCreativeMoreBtn');",
-    "  if (sorted.length === 0){ tbody.innerHTML = '<tr><td colspan=\"9\" class=\"px-3 py-6 text-center text-slate-400\">데이터가 없습니다.</td></tr>'; moreBtn.hidden = true; return; }",
+    "  if (sorted.length === 0){ tbody.innerHTML = '<tr><td colspan=\"9\" class=\"empty-cell\">데이터가 없습니다.</td></tr>'; moreBtn.hidden = true; return; }",
     "  var expanded = false;",
     "  function rowHtml(r){",
     "    return '<tr>' +",
-    "      '<td class=\"px-3 py-2\">' + esc(r.name) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.impressions) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.clicks) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + r.ctr.toFixed(2) + '%</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.cost) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtNum(r.conversions) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + r.cvr.toFixed(2) + '%</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + fmtWon(r.revenue) + '</td>' +",
-    "      '<td class=\"px-3 py-2 text-right\">' + r.roas + '%</td>' +",
+    "      '<td>' + esc(r.name) + '</td>' +",
+    "      '<td>' + fmtNum(r.impressions) + '</td>' +",
+    "      '<td>' + fmtNum(r.clicks) + '</td>' +",
+    "      '<td>' + r.ctr.toFixed(2) + '%</td>' +",
+    "      '<td>' + fmtWon(r.cost) + '</td>' +",
+    "      '<td>' + fmtNum(r.conversions) + '</td>' +",
+    "      '<td>' + r.cvr.toFixed(2) + '%</td>' +",
+    "      '<td>' + fmtWon(r.revenue) + '</td>' +",
+    "      '<td>' + r.roas + '%</td>' +",
     "      '</tr>';",
     "  }",
     "  function draw(){",
@@ -1664,15 +1809,19 @@ function buildReportHtmlDocument(report) {
     "  el.addEventListener('focus', function(){ if (el.textContent === placeholder){ el.textContent = ''; } });",
     "  el.addEventListener('blur', function(){ if (el.textContent.trim() === ''){ el.textContent = placeholder; } });",
     "}",
-    "renderKpi('saKpiGrid', REPORT.sa.kpi);",
-    "renderKpi('gfaKpiGrid', REPORT.gfa.kpi);",
+    "renderKpi('saKpiGrid', REPORT.sa.kpi, REPORT.sa.compareKpi);",
+    "renderKpi('gfaKpiGrid', REPORT.gfa.kpi, REPORT.gfa.compareKpi);",
     "renderProductSection('sa', REPORT.sa.products);",
     "renderProductSection('gfa', REPORT.gfa.products);",
-    "renderKeywordSection(REPORT.sa.keywords);",
+    "renderKeywordSection(REPORT.sa.keywords, REPORT.sa.keywordFailures);",
     "renderCreativeSection(REPORT.gfa.creatives);",
     "setupReviewBox('saReviewBox');",
     "setupReviewBox('gfaReviewBox');"
   ].join("\n");
+
+  const metaLine = report.comparePeriodLabel
+    ? `분석 기간 ${escapeHtml(report.periodLabel)} · 비교 기간 ${escapeHtml(report.comparePeriodLabel)} · 생성일 ${escapeHtml(report.generatedAt)}`
+    : `분석 기간 ${escapeHtml(report.periodLabel)} · 생성일 ${escapeHtml(report.generatedAt)}`;
 
   return `<!DOCTYPE html>
 <html lang="ko">
@@ -1680,143 +1829,248 @@ function buildReportHtmlDocument(report) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(report.advertiserName)} 광고 운영 보고서</title>
-<script src="https://cdn.tailwindcss.com"><\/script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>
 <style>
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+  :root {
+    --bg: #f3f5f9;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --accent-soft: #e8f0fe;
+    --card-bg: #ffffff;
+    --border: #e4e8f0;
+    --text-main: #1c2333;
+    --text-muted: #6b7280;
+    --text-faint: #9aa3b5;
+    --positive: #16a34a;
+    --negative: #dc2626;
+    --radius-lg: 16px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --shadow-card: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+    --brand: #a41e2f;
+    --gfa-accent: #7c3aed;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  section { scroll-margin-top: 5rem; }
-  body { font-family: 'Pretendard', sans-serif; background-color: #f8fafc; }
-  [contenteditable]:focus { outline: none; border-color: #60a5fa; }
+  body {
+    font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-main);
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+  .report-wrap { max-width: 1180px; margin: 0 auto; padding: 44px 24px 72px; }
+  .report-header { margin-bottom: 36px; padding-bottom: 22px; border-bottom: 1px solid var(--border); }
+  .report-brand { font-size: 11.5px; font-weight: 800; letter-spacing: 1.4px; color: var(--brand); text-transform: uppercase; margin-bottom: 10px; }
+  .report-title { font-size: 25px; font-weight: 800; color: var(--text-main); letter-spacing: -.3px; }
+  .report-meta { margin-top: 8px; font-size: 13px; color: var(--text-muted); }
+
+  .quick-nav { position: fixed; top: 20px; right: 20px; display: flex; gap: 8px; z-index: 40; }
+  .quick-nav a {
+    display: inline-flex; align-items: center; padding: 9px 20px; border-radius: 999px;
+    background: var(--card-bg); border: 1px solid var(--border); box-shadow: var(--shadow-card);
+    font-size: 12.5px; font-weight: 700; text-decoration: none; transition: border-color .15s, transform .15s;
+  }
+  .quick-nav a:hover { transform: translateY(-1px); }
+  .quick-nav a.sa { color: var(--accent-dark); }
+  .quick-nav a.sa:hover { border-color: var(--accent); }
+  .quick-nav a.gfa { color: var(--gfa-accent); }
+  .quick-nav a.gfa:hover { border-color: var(--gfa-accent); }
+
+  .channel-section { margin-bottom: 60px; scroll-margin-top: 24px; }
+  .channel-eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .channel-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .channel-section.gfa .channel-dot { background: var(--gfa-accent); }
+  .channel-label { font-size: 11.5px; font-weight: 700; letter-spacing: .5px; color: var(--text-faint); text-transform: uppercase; }
+  .section-title { font-size: 19px; font-weight: 700; color: var(--text-main); margin: 30px 0 14px; }
+  .section-title:first-of-type { margin-top: 0; }
+  .subsection-label { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 10px; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 24px; }
+  .kpi-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-card); padding: 16px 18px; display: flex; flex-direction: column; gap: 7px; }
+  .kpi-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .kpi-value { font-size: 19px; font-weight: 700; color: var(--text-main); letter-spacing: -.2px; }
+  .kpi-sub { display: inline-flex; align-items: center; gap: 3px; width: fit-content; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #eef0f5; color: var(--text-muted); }
+  .kpi-sub.up { background: rgba(22,163,74,.12); color: var(--positive); }
+  .kpi-sub.down { background: rgba(220,38,38,.12); color: var(--negative); }
+
+  .review-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-card); padding: 20px 22px; margin-bottom: 34px; }
+  .review-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .review-hint { display: block; font-size: 11.5px; color: var(--text-faint); margin-bottom: 12px; line-height: 1.5; }
+  .review-box { min-height: 110px; border: 1.5px dashed var(--border); border-radius: var(--radius-sm); padding: 14px 16px; font-size: 13.5px; color: var(--text-main); line-height: 1.65; }
+  .review-box:focus { outline: none; border-color: var(--accent); border-style: solid; }
+
+  .chart-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; }
+  .chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-card); padding: 20px 22px; }
+  .chart-card-title { font-size: 13px; font-weight: 700; color: var(--text-main); margin-bottom: 12px; text-align: center; }
+  .chart-canvas-wrap { position: relative; height: 240px; }
+
+  .product-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .empty-hint { color: var(--text-muted); font-size: 13px; }
+  .model-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
+  .model-card-name { font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 10px; }
+  .model-card-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-bottom: 10px; }
+  .model-card-metrics > div, .model-card-bottom > div { display: flex; flex-direction: column; gap: 2px; }
+  .model-metric-label { font-size: 11px; color: var(--text-faint); }
+  .model-metric-value { font-size: 12.5px; font-weight: 600; color: var(--text-main); }
+  .model-metric-value.strong { font-size: 14px; font-weight: 700; }
+  .model-metric-value.accent { color: var(--accent-dark); }
+  .model-card-bottom { display: flex; align-items: flex-end; justify-content: space-between; padding-top: 10px; border-top: 1px dashed var(--border); }
+  .model-card-bottom-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+
+  .more-btn-wrap { text-align: center; margin: 16px 0 36px; }
+  .more-btn { background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); border-radius: 999px; padding: 9px 22px; font-size: 12.5px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-card); font-family: inherit; }
+  .more-btn:hover { border-color: var(--accent); color: var(--accent-dark); }
+
+  .filter-row { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .filter-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text-muted); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s, color .15s, border-color .15s; }
+  .filter-btn:hover { border-color: var(--accent); color: var(--accent-dark); }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .notice { background: #fff8e6; border: 1px solid #f5d98b; color: #92650a; border-radius: var(--radius-sm); padding: 10px 14px; font-size: 12.5px; margin-bottom: 14px; }
+
+  .table-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-card); overflow-x: auto; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+  .data-table th, .data-table td { padding: 12px 16px; text-align: right; }
+  .data-table th:first-child, .data-table td:first-child { text-align: left; }
+  .data-table thead th { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .3px; border-bottom: 1px solid var(--border); }
+  .data-table tbody tr { border-bottom: 1px solid var(--border); }
+  .data-table tbody tr:last-child { border-bottom: none; }
+  .data-table tbody td { color: var(--text-main); font-weight: 500; }
+  .data-table tbody td:first-child { font-weight: 600; }
+  .empty-cell { text-align: center !important; color: var(--text-muted); padding: 32px 16px !important; white-space: normal; }
+  .pill-tag { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); white-space: nowrap; }
+
+  .report-footer { text-align: center; font-size: 12.5px; color: var(--text-faint); margin-top: 52px; padding-top: 20px; border-top: 1px solid var(--border); }
+
+  @media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .chart-grid { grid-template-columns: 1fr; }
+    .quick-nav { position: static; justify-content: flex-end; margin-bottom: 16px; }
+  }
 </style>
 </head>
-<body class="text-slate-800">
-  <div class="fixed top-4 right-4 flex gap-2 z-40">
-    <a href="#sa-section" class="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-full shadow-md hover:bg-blue-700">SA</a>
-    <a href="#gfa-section" class="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-full shadow-md hover:bg-indigo-700">GFA</a>
+<body>
+  <div class="quick-nav">
+    <a class="sa" href="#sa-section">SA</a>
+    <a class="gfa" href="#gfa-section">GFA</a>
   </div>
 
-  <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-    <header class="mb-12 border-b border-slate-200 pb-8">
-      <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">${escapeHtml(report.advertiserName)} 광고 운영 보고서</h1>
-      <p class="mt-2 text-slate-500">분석 기간: ${escapeHtml(report.periodLabel)} · 생성일: ${escapeHtml(report.generatedAt)}</p>
+  <div class="report-wrap">
+    <header class="report-header">
+      <p class="report-brand">Linkprice · 광고 운영 보고서</p>
+      <h1 class="report-title">${escapeHtml(report.advertiserName)} 광고 운영 보고서</h1>
+      <p class="report-meta">${metaLine}</p>
     </header>
 
-    <section id="sa-section" class="mb-20">
-      <h2 class="text-2xl font-bold text-slate-900 mb-6">SA 성과 대시보드</h2>
-      <h3 class="text-sm font-bold text-slate-500 mb-3">핵심지표</h3>
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8" id="saKpiGrid"></div>
+    <section id="sa-section" class="channel-section sa">
+      <div class="channel-eyebrow"><span class="channel-dot"></span><span class="channel-label">SA</span></div>
+      <h2 class="section-title">성과 대시보드</h2>
+      <p class="subsection-label">핵심지표</p>
+      <div class="kpi-grid" id="saKpiGrid"></div>
 
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-12">
-        <h3 class="font-bold text-slate-800 mb-2">운영 리뷰</h3>
-        <p class="text-xs text-slate-400 mb-3">아래 영역을 클릭해 이번 기간 운영 리뷰를 작성하세요. 작성 후 브라우저에서 Ctrl+S(다른 이름으로 저장)로 다시 저장하면 내용이 그대로 보존됩니다.</p>
-        <div id="saReviewBox" contenteditable="true" class="min-h-[120px] rounded-lg border-2 border-dashed border-slate-300 p-4 text-sm text-slate-700">이번 기간 운영 리뷰를 입력하세요...</div>
+      <div class="review-card">
+        <p class="review-title">운영 리뷰</p>
+        <span class="review-hint">아래 영역을 클릭해 이번 기간 운영 리뷰를 작성하세요. 작성 후 브라우저에서 Ctrl+S(다른 이름으로 저장)로 다시 저장하면 내용이 그대로 보존됩니다.</span>
+        <div id="saReviewBox" class="review-box" contenteditable="true">이번 기간 운영 리뷰를 입력하세요...</div>
       </div>
 
-      <h2 class="text-2xl font-bold text-slate-900 mb-6">SA 상품별 데이터</h2>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 class="font-bold text-slate-700 mb-4 text-center">Top 5 상품 매출 비중</h3>
-          <div class="h-64 relative w-full"><canvas id="saDonutChart"></canvas></div>
+      <h2 class="section-title">상품별 데이터</h2>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <p class="chart-card-title">Top 5 상품 매출 비중</p>
+          <div class="chart-canvas-wrap"><canvas id="saDonutChart"></canvas></div>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 class="font-bold text-slate-700 mb-4 text-center">주요 5대 상품 전환율(CVR) & ROAS</h3>
-          <div class="h-64 relative w-full"><canvas id="saBarChart"></canvas></div>
+        <div class="chart-card">
+          <p class="chart-card-title">주요 5대 상품 전환율(CVR) & ROAS</p>
+          <div class="chart-canvas-wrap"><canvas id="saBarChart"></canvas></div>
         </div>
       </div>
-      <div class="flex justify-between items-end mb-4">
-        <h3 class="text-lg font-bold text-slate-900">전 품목 모델별 성과 상세</h3>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="saProductGrid"></div>
-      <div class="text-center mb-16">
-        <button id="saProductMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
-      </div>
+      <p class="subsection-label">전 품목 모델별 성과 상세</p>
+      <div class="product-grid" id="saProductGrid"></div>
+      <div class="more-btn-wrap"><button type="button" id="saProductMoreBtn" class="more-btn">더보기</button></div>
 
-      <h2 class="text-2xl font-bold text-slate-900 mb-4">캠페인 유형별 키워드 데이터</h2>
-      <div class="flex gap-2 mb-4" id="saKeywordFilter">
-        <button type="button" data-type="" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-600 text-white">전체</button>
-        <button type="button" data-type="파워링크" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">파워링크</button>
-        <button type="button" data-type="쇼핑검색" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">쇼핑검색</button>
-        <button type="button" data-type="브랜드검색" class="px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">브랜드검색</button>
+      <h2 class="section-title">캠페인 유형별 키워드 데이터</h2>
+      <p class="notice" id="saKeywordNotice" hidden></p>
+      <div class="filter-row" id="saKeywordFilter">
+        <button type="button" data-type="" class="filter-btn active">전체</button>
+        <button type="button" data-type="파워링크" class="filter-btn">파워링크</button>
+        <button type="button" data-type="쇼핑검색" class="filter-btn">쇼핑검색</button>
+        <button type="button" data-type="브랜드검색" class="filter-btn">브랜드검색</button>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
-        <table class="w-full text-sm text-left whitespace-nowrap">
-          <thead class="bg-slate-100 text-slate-600">
+      <div class="table-card">
+        <table class="data-table">
+          <thead>
             <tr>
-              <th class="px-3 py-3 font-bold">키워드</th>
-              <th class="px-3 py-3 font-bold">캠페인</th>
-              <th class="px-3 py-3 font-bold">그룹</th>
-              <th class="px-3 py-3 font-bold">캠페인 유형</th>
-              <th class="px-3 py-3 font-bold text-right">노출수</th>
-              <th class="px-3 py-3 font-bold text-right">클릭수</th>
-              <th class="px-3 py-3 font-bold text-right">CTR</th>
-              <th class="px-3 py-3 font-bold text-right">총비용</th>
-              <th class="px-3 py-3 font-bold text-right">CPC</th>
+              <th>키워드</th>
+              <th>캠페인</th>
+              <th>그룹</th>
+              <th>캠페인 유형</th>
+              <th>노출수</th>
+              <th>클릭수</th>
+              <th>CTR</th>
+              <th>총비용</th>
+              <th>CPC</th>
             </tr>
           </thead>
-          <tbody id="saKeywordTableBody" class="divide-y divide-slate-100"></tbody>
+          <tbody id="saKeywordTableBody"></tbody>
         </table>
       </div>
-      <div class="text-center mt-4">
-        <button id="saKeywordMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
-      </div>
+      <div class="more-btn-wrap"><button type="button" id="saKeywordMoreBtn" class="more-btn">더보기</button></div>
     </section>
 
-    <section id="gfa-section" class="mb-16">
-      <h2 class="text-2xl font-bold text-slate-900 mb-6">GFA 성과 대시보드</h2>
-      <h3 class="text-sm font-bold text-slate-500 mb-3">핵심지표</h3>
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8" id="gfaKpiGrid"></div>
+    <section id="gfa-section" class="channel-section gfa">
+      <div class="channel-eyebrow"><span class="channel-dot"></span><span class="channel-label">GFA</span></div>
+      <h2 class="section-title">성과 대시보드</h2>
+      <p class="subsection-label">핵심지표</p>
+      <div class="kpi-grid" id="gfaKpiGrid"></div>
 
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-12">
-        <h3 class="font-bold text-slate-800 mb-2">운영 리뷰</h3>
-        <p class="text-xs text-slate-400 mb-3">아래 영역을 클릭해 이번 기간 운영 리뷰를 작성하세요. 작성 후 브라우저에서 Ctrl+S(다른 이름으로 저장)로 다시 저장하면 내용이 그대로 보존됩니다.</p>
-        <div id="gfaReviewBox" contenteditable="true" class="min-h-[120px] rounded-lg border-2 border-dashed border-slate-300 p-4 text-sm text-slate-700">이번 기간 운영 리뷰를 입력하세요...</div>
+      <div class="review-card">
+        <p class="review-title">운영 리뷰</p>
+        <span class="review-hint">아래 영역을 클릭해 이번 기간 운영 리뷰를 작성하세요. 작성 후 브라우저에서 Ctrl+S(다른 이름으로 저장)로 다시 저장하면 내용이 그대로 보존됩니다.</span>
+        <div id="gfaReviewBox" class="review-box" contenteditable="true">이번 기간 운영 리뷰를 입력하세요...</div>
       </div>
 
-      <h2 class="text-2xl font-bold text-slate-900 mb-6">GFA 상품별 데이터 (ADVoost)</h2>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 class="font-bold text-slate-700 mb-4 text-center">Top 5 상품 매출 비중</h3>
-          <div class="h-64 relative w-full"><canvas id="gfaDonutChart"></canvas></div>
+      <h2 class="section-title">상품별 데이터 (ADVoost)</h2>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <p class="chart-card-title">Top 5 상품 매출 비중</p>
+          <div class="chart-canvas-wrap"><canvas id="gfaDonutChart"></canvas></div>
         </div>
-        <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 class="font-bold text-slate-700 mb-4 text-center">주요 5대 상품 전환율(CVR) & ROAS</h3>
-          <div class="h-64 relative w-full"><canvas id="gfaBarChart"></canvas></div>
+        <div class="chart-card">
+          <p class="chart-card-title">주요 5대 상품 전환율(CVR) & ROAS</p>
+          <div class="chart-canvas-wrap"><canvas id="gfaBarChart"></canvas></div>
         </div>
       </div>
-      <div class="flex justify-between items-end mb-4">
-        <h3 class="text-lg font-bold text-slate-900">전 품목 모델별 성과 상세</h3>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="gfaProductGrid"></div>
-      <div class="text-center mb-16">
-        <button id="gfaProductMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
-      </div>
+      <p class="subsection-label">전 품목 모델별 성과 상세</p>
+      <div class="product-grid" id="gfaProductGrid"></div>
+      <div class="more-btn-wrap"><button type="button" id="gfaProductMoreBtn" class="more-btn">더보기</button></div>
 
-      <h2 class="text-2xl font-bold text-slate-900 mb-4">소재별 성과</h2>
-      <div class="overflow-x-auto rounded-lg border border-slate-200 shadow-sm bg-white">
-        <table class="w-full text-sm text-left whitespace-nowrap">
-          <thead class="bg-slate-100 text-slate-600">
+      <h2 class="section-title">소재별 성과</h2>
+      <div class="table-card">
+        <table class="data-table">
+          <thead>
             <tr>
-              <th class="px-3 py-3 font-bold">소재명</th>
-              <th class="px-3 py-3 font-bold text-right">노출수</th>
-              <th class="px-3 py-3 font-bold text-right">클릭수</th>
-              <th class="px-3 py-3 font-bold text-right">CTR</th>
-              <th class="px-3 py-3 font-bold text-right">총비용</th>
-              <th class="px-3 py-3 font-bold text-right">전환수</th>
-              <th class="px-3 py-3 font-bold text-right">CVR</th>
-              <th class="px-3 py-3 font-bold text-right">총매출</th>
-              <th class="px-3 py-3 font-bold text-right">ROAS</th>
+              <th>소재명</th>
+              <th>노출수</th>
+              <th>클릭수</th>
+              <th>CTR</th>
+              <th>총비용</th>
+              <th>전환수</th>
+              <th>CVR</th>
+              <th>총매출</th>
+              <th>ROAS</th>
             </tr>
           </thead>
-          <tbody id="gfaCreativeTableBody" class="divide-y divide-slate-100"></tbody>
+          <tbody id="gfaCreativeTableBody"></tbody>
         </table>
       </div>
-      <div class="text-center mt-4">
-        <button id="gfaCreativeMoreBtn" class="px-5 py-2 bg-slate-800 text-white text-sm font-semibold rounded-full hover:bg-slate-700">더보기</button>
-      </div>
+      <div class="more-btn-wrap"><button type="button" id="gfaCreativeMoreBtn" class="more-btn">더보기</button></div>
     </section>
 
-    <footer class="text-center text-sm text-slate-500 mt-12 border-t border-slate-200 pt-6 pb-8">
+    <footer class="report-footer">
       <p>본 보고서는 Linkprice 광고 운영 대시보드에서 생성되었습니다.</p>
     </footer>
   </div>
