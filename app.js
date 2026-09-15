@@ -21,8 +21,7 @@ const GFA_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-upload`;
 const GFA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/gfa-performance`;
 const SA_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-performance`;
 const SA_KEYWORD_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-keyword-performance`;
-const SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-mapping-upload`;
-// 기존 매핑은 그대로 두고, 새 캠페인의 소재ID만 추가/갱신할 때 쓴다(전체 스냅샷 교체 아님).
+// naver_ad_id 기준 upsert라 기존 매핑을 지우지 않는다(전체 스냅샷 교체 아님).
 const SA_PRODUCT_MAPPING_ADD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-mapping-add`;
 const SA_PRODUCT_MODEL_MAPPING_UPLOAD_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-model-mapping-upload`;
 const SA_PRODUCT_PERFORMANCE_ENDPOINT = `${SUPABASE_CONFIG.url}/functions/v1/sa-product-performance`;
@@ -666,43 +665,8 @@ function fetchSaProductPerformanceAny(opts) {
   return fetchSaProductPerformance(opts);
 }
 
-async function uploadSaProductMapping(rows) {
-  const session = getSession();
-  if (!session) {
-    return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
-  }
-
-  let res;
-  try {
-    res = await fetch(SA_PRODUCT_MAPPING_UPLOAD_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_CONFIG.anonKey}`,
-        "apikey": SUPABASE_CONFIG.anonKey,
-        "X-Session-Token": session.token
-      },
-      body: JSON.stringify({ rows })
-    });
-  } catch {
-    return { success: false, message: "서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요." };
-  }
-
-  let payload;
-  try {
-    payload = await res.json();
-  } catch {
-    return { success: false, message: "서버 응답을 처리할 수 없습니다." };
-  }
-
-  if (!res.ok || !payload.success) {
-    return { success: false, message: payload.message || "업로드에 실패했습니다." };
-  }
-
-  return payload;
-}
-
-// uploadSaProductMapping과 달리 기존 매핑을 지우지 않고 naver_ad_id 기준으로 추가/갱신만 한다.
+// naver_ad_id 기준으로 upsert만 한다 - 기존 매핑을 지우지 않아서, 새 캠페인분만
+// 올려도 되고 전체를 다시 올려도 안전하다(둘 다 해당 소재ID만 갱신됨).
 async function uploadSaProductMappingAdd(rows) {
   const session = getSession();
   if (!session) {
@@ -999,10 +963,6 @@ const compareCustomConfirmBtn = document.getElementById("compareCustomConfirmBtn
 const viewModel = document.getElementById("view-model");
 const modelViewTitle = document.getElementById("modelViewTitle");
 const modelViewNotice = document.getElementById("modelViewNotice");
-const productMappingUploadCard = document.getElementById("productMappingUploadCard");
-const productMappingUploadForm = document.getElementById("productMappingUploadForm");
-const productMappingFileInput = document.getElementById("productMappingFileInput");
-const productMappingUploadStatus = document.getElementById("productMappingUploadStatus");
 const productMappingAddCard = document.getElementById("productMappingAddCard");
 const productMappingAddForm = document.getElementById("productMappingAddForm");
 const productMappingAddFileInput = document.getElementById("productMappingAddFileInput");
@@ -1503,7 +1463,6 @@ async function exportCurrentViewToPdf() {
         // 리포트에는 업로드용 위젯이 들어갈 필요가 없으니(데이터가 아니라 조작용 UI라)
         // 캡처 직전에만 숨긴다. 채널을 다시 바꾸면 renderModelView가 알아서 원래 상태로
         // 되돌려두니 따로 복원할 필요는 없다.
-        productMappingUploadCard.hidden = true;
         productMappingAddCard.hidden = true;
         productModelMappingUploadCard.hidden = true;
         // Chart.js는 캔버스에 실제로 그리는 게 requestAnimationFrame 기준이라, renderModelView가
@@ -3176,7 +3135,6 @@ async function renderModelView() {
   // 상품 매핑(소재ID<->상품명) 업로드는 API 모드(sa-sync가 sa_product_mapping과 조인)와
   // 수기 업로드 모드(sa-manual-product-performance가 sa_product_raw와 조인) 둘 다 필요하다 -
   // 어느 쪽이든 네이버가 상품별 데이터를 소재ID로만 주기 때문.
-  productMappingUploadCard.hidden = state.currentChannel !== "SA";
   productMappingAddCard.hidden = state.currentChannel !== "SA";
   productModelMappingUploadCard.hidden = state.currentChannel !== "SA" || state.saMode === "manual";
   if (state.currentChannel === "GFA") {
@@ -4576,43 +4534,6 @@ productModelMappingUploadForm.addEventListener("submit", async (e) => {
   }
 });
 
-productMappingUploadForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  const file = productMappingFileInput.files[0];
-  if (!file) return;
-
-  productMappingUploadStatus.hidden = true;
-  const submitBtn = productMappingUploadForm.querySelector("button[type=submit]");
-  submitBtn.disabled = true;
-  const originalLabel = submitBtn.textContent;
-  submitBtn.textContent = "업로드 중...";
-
-  try {
-    const text = await readUploadFileAsCsvText(file);
-    const rows = parseSaProductMappingCsv(text);
-
-    if (rows.length === 0) {
-      throw new Error("업로드할 데이터가 없습니다.");
-    }
-
-    const result = await uploadSaProductMapping(rows);
-    if (!result.success) {
-      throw new Error(result.message);
-    }
-
-    showUploadStatus(productMappingUploadStatus, `업로드 완료: 상품 ${result.inserted}개 매핑 저장`, "success");
-    productMappingUploadForm.reset();
-  } catch (err) {
-    showUploadStatus(productMappingUploadStatus, err.message || "업로드 중 오류가 발생했습니다.", "error");
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = originalLabel;
-  }
-});
-
-// 새 캠페인의 소재ID만 올려도 되는 "추가/업데이트" 카드 - 같은 CSV 형식(parseSaProductMappingCsv)을
-// 쓰지만 위 productMappingUploadForm과 달리 기존 매핑을 지우지 않는다(sa-product-mapping-add).
 productMappingAddForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
