@@ -581,32 +581,20 @@
         <h2 class="view-title" id="modelViewTitle">상품별(모델별) 성과</h2>
         <p class="empty-notice" id="modelViewNotice" hidden></p>
 
-        <!-- SA 전용: 소재ID<->상품명 매핑 업로드 (쇼핑검색 상품별 성과 매칭용) -->
-        <div class="model-list-card" id="productMappingUploadCard" hidden>
-          <h3 class="model-list-title">상품 매핑 파일 업로드</h3>
+        <!-- SA 전용: 소재ID<->상품명 매핑 업로드 (쇼핑검색 상품별 성과 매칭용).
+             naver_ad_id 기준 upsert라 기존 매핑을 지우지 않는다 - 새 캠페인 것만 받아서 올려도
+             되고, 전체 "광고 다운로드"를 통째로 다시 올려도 안전하다(둘 다 해당 소재ID만 갱신됨). -->
+        <div class="model-list-card" id="productMappingAddCard" hidden>
+          <h3 class="model-list-title">상품 매핑 업로드</h3>
           <span class="breakdown-hint">
             네이버 검색광고 관리시스템의 "광고 다운로드" CSV를 그대로 업로드하면 됩니다
-            (소재ID/기본상품명 포함, 쇼핑검색 상품별 성과 매칭에 쓰입니다).
-          </span>
-          <form class="upload-form" id="productMappingUploadForm">
-            <input type="file" class="upload-file-input" id="productMappingFileInput" accept=".csv,.xlsx,.xls,.zip" required>
-            <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
-          </form>
-          <p class="upload-status" id="productMappingUploadStatus" hidden></p>
-        </div>
-
-        <!-- SA 전용: 소재ID<->상품명 매핑 "추가"(위 카드와 달리 기존 매핑을 지우지 않음) -->
-        <div class="model-list-card" id="productMappingAddCard" hidden>
-          <h3 class="model-list-title">신규 소재 매핑 추가</h3>
-          <span class="breakdown-hint">
-            <b>새 캠페인이 생겨서 소재ID가 새로 생겼을 때</b> 쓰는 카드입니다. 위 "상품 매핑 파일 업로드"는
-            매번 전체 계정 매핑을 통째로 교체하기 때문에, 새 캠페인 것만 다운받아 올리면 다른 캠페인들의
-            기존 매핑이 전부 지워집니다. 여기는 올린 소재ID만 추가/갱신하고 나머지 매핑은 그대로 둡니다.
-            파일 형식은 위 카드와 동일합니다(네이버 "광고 다운로드" CSV, 새 캠페인분만 받아서 올리면 됩니다).
+            (소재ID/기본상품명 포함, 쇼핑검색 상품별 성과 매칭에 쓰입니다). 새 캠페인이 생겼을 때
+            그 캠페인분만 받아서 올려도 되고, 전체를 다시 올려도 됩니다 - 올린 소재ID만 추가/갱신되고
+            나머지 기존 매핑은 그대로 유지됩니다.
           </span>
           <form class="upload-form" id="productMappingAddForm">
             <input type="file" class="upload-file-input" id="productMappingAddFileInput" accept=".csv,.xlsx,.xls,.zip" required>
-            <button type="submit" class="btn-primary upload-submit-btn">추가/갱신</button>
+            <button type="submit" class="btn-primary upload-submit-btn">업로드</button>
           </form>
           <p class="upload-status" id="productMappingAddStatus" hidden></p>
         </div>
