@@ -595,6 +595,22 @@
           <p class="upload-status" id="productMappingUploadStatus" hidden></p>
         </div>
 
+        <!-- SA 전용: 소재ID<->상품명 매핑 "추가"(위 카드와 달리 기존 매핑을 지우지 않음) -->
+        <div class="model-list-card" id="productMappingAddCard" hidden>
+          <h3 class="model-list-title">신규 소재 매핑 추가</h3>
+          <span class="breakdown-hint">
+            <b>새 캠페인이 생겨서 소재ID가 새로 생겼을 때</b> 쓰는 카드입니다. 위 "상품 매핑 파일 업로드"는
+            매번 전체 계정 매핑을 통째로 교체하기 때문에, 새 캠페인 것만 다운받아 올리면 다른 캠페인들의
+            기존 매핑이 전부 지워집니다. 여기는 올린 소재ID만 추가/갱신하고 나머지 매핑은 그대로 둡니다.
+            파일 형식은 위 카드와 동일합니다(네이버 "광고 다운로드" CSV, 새 캠페인분만 받아서 올리면 됩니다).
+          </span>
+          <form class="upload-form" id="productMappingAddForm">
+            <input type="file" class="upload-file-input" id="productMappingAddFileInput" accept=".csv,.xlsx,.xls,.zip" required>
+            <button type="submit" class="btn-primary upload-submit-btn">추가/갱신</button>
+          </form>
+          <p class="upload-status" id="productMappingAddStatus" hidden></p>
+        </div>
+
         <div class="model-list-card" id="productModelMappingUploadCard" hidden>
           <h3 class="model-list-title">상품코드-모델명 매핑 업로드</h3>
           <span class="breakdown-hint">
