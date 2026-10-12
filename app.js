@@ -328,7 +328,49 @@ async function fetchChannelPerformance(channel, groupBy, { dateFrom, dateTo, adT
   return payload;
 }
 
+// 행이 많은 파일(예: 11번가 포커스클릭)을 한 요청으로 보내면 Edge Function이 컴퓨팅
+// 리소스 한도를 넘겨서 실패한다. 그래서 여러 요청으로 나눠 보내는데, 서버가 "요청에
+// 들어있는 날짜의 기존 데이터를 지우고 새로 넣는" 방식이라 같은 날짜의 행이 두 요청에
+// 걸치면 앞 요청분이 지워진다 - 반드시 날짜 단위로 묶어서 나눈다.
+const CHANNEL_UPLOAD_BATCH_ROWS = 2000;
+
 async function uploadChannelData(channel, adType, rows) {
+  const rowsByDate = new Map();
+  rows.forEach((row) => {
+    if (!rowsByDate.has(row.date)) rowsByDate.set(row.date, []);
+    rowsByDate.get(row.date).push(row);
+  });
+
+  const batches = [];
+  let current = [];
+  for (const dateRows of rowsByDate.values()) {
+    if (current.length > 0 && current.length + dateRows.length > CHANNEL_UPLOAD_BATCH_ROWS) {
+      batches.push(current);
+      current = [];
+    }
+    current = current.concat(dateRows);
+  }
+  if (current.length > 0) batches.push(current);
+
+  let inserted = 0;
+  const datesReplaced = [];
+  for (const batch of batches) {
+    const result = await uploadChannelDataBatch(channel, adType, batch);
+    if (!result.success) {
+      if (inserted === 0) return result;
+      return {
+        success: false,
+        message: `${result.message} (전체 ${rows.length}건 중 ${inserted}건까지만 저장됨 - 같은 파일을 다시 업로드해주세요.)`
+      };
+    }
+    inserted += result.inserted;
+    datesReplaced.push(...result.dates_replaced);
+  }
+
+  return { success: true, inserted, dates_replaced: datesReplaced };
+}
+
+async function uploadChannelDataBatch(channel, adType, rows) {
   const session = getSession();
   if (!session) {
     return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
@@ -3984,7 +4026,15 @@ async function readUploadFileAsCsvText(file) {
     }
     return XLSX.utils.sheet_to_csv(workbook.Sheets[firstSheetName]);
   }
-  return file.text();
+  // 네이버에서 받은 CSV는 UTF-8이 아니라 EUC-KR(CP949)인 경우가 흔하다. file.text()는
+  // 무조건 UTF-8로 읽어서 한글이 깨진 채(�) 저장되므로, UTF-8로 엄격하게(fatal) 먼저
+  // 시도해보고 실패하면 EUC-KR로 다시 디코딩한다.
+  const buffer = await file.arrayBuffer();
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return new TextDecoder("euc-kr").decode(buffer);
+  }
 }
 
 // 캠페인 / 그룹 / ADV / SA 수기 업로드 폼에 공통 로직을 붙인다.
