@@ -3686,9 +3686,22 @@ const GFA_RAW_TYPE_COLUMNS = {
 
 // requiredColumns와 달리, CSV에 없어도 업로드 자체는 막지 않는 추가 컬럼
 // (campaign_type은 캠페인 Raw에만 있고, 예전에 만든 템플릿이나 구버전 파일에는 없을 수 있다).
+// 소재 Raw의 campaign/ad_group은 저장용이 아니라, 홈앤힐/쉬어처럼 GFA 계정을 같이 쓰는
+// 광고주를 서버(gfa-upload)가 나눠 담을 때만 쓴다 - 소재 이름에는 브랜드 표시가 없고
+// 캠페인 이름("..._쉬어")에만 있기 때문 (2026-10-12 실제 소재 리포트로 확인).
 const GFA_OPTIONAL_COLUMNS = {
-  campaign: ["campaign_type"]
+  campaign: ["campaign_type"],
+  creative: ["campaign", "ad_group"]
 };
+
+// 네이버 GFA 리포트는 하위 단위일수록 상위 이름 컬럼도 같이 달고 나온다(소재 리포트에는
+// "캠페인 이름"/"광고 그룹 이름"도 있다). 필수 컬럼만 보면 소재 리포트가 캠페인/그룹 Raw
+// 형식으로도 통과해서 엉뚱한 카드에 들어가므로, 더 하위 단위 컬럼이 있는 파일은 거른다.
+const GFA_MORE_SPECIFIC_COLUMNS = {
+  campaign: ["creative", "ad_group"],
+  adgroup: ["creative"]
+};
+const GFA_RAW_TYPE_LABELS = { ad_group: "그룹", creative: "소재" };
 
 // SA API 연동이 없는 광고주(예: 쉬어)용 수기 업로드 - 네이버가 실제로 주는 리포트는
 // GFA와 완전히 다른 형식(첫 줄에 "쉬어 캠페인 raw(2026.07.01.~2026.08.23.)"처럼 기간이
@@ -3717,7 +3730,7 @@ const GFA_HEADER_ALIASES = {
   campaign_type: ["campaign_type", "캠페인 목적", "캠페인 유형", "캠페인유형"],
   ad_group: ["ad_group", "광고 그룹 이름", "광고그룹 이름", "광고그룹명", "광고그룹"],
   product: ["product", "상품명", "상품 이름"],
-  creative: ["creative", "소재 이름", "소재명", "소재"],
+  creative: ["creative", "광고 소재 이름", "소재 이름", "소재명", "소재"],
   keyword: ["keyword", "키워드", "키워드명", "검색어"],
   naver_ad_id: ["naver_ad_id", "소재 id", "소재id"],
   impressions: ["impressions", "노출수"],
@@ -3851,13 +3864,20 @@ function findColumnIndex(header, aliases) {
   return -1;
 }
 
-function parseGfaCsv(text, requiredColumns, optionalColumns = []) {
+function parseGfaCsv(text, requiredColumns, optionalColumns = [], moreSpecificColumns = []) {
   const lines = text.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0);
   if (lines.length < 2) {
     throw new Error("업로드할 데이터가 없습니다 (헤더 다음 줄부터 데이터가 있어야 합니다).");
   }
 
   const header = splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+
+  const moreSpecific = moreSpecificColumns.find(
+    (field) => findColumnIndex(header, GFA_HEADER_ALIASES[field] || [field]) !== -1
+  );
+  if (moreSpecific) {
+    throw new Error(`이 파일은 ${GFA_RAW_TYPE_LABELS[moreSpecific]} Raw 리포트입니다. ${GFA_RAW_TYPE_LABELS[moreSpecific]} Raw 카드에 올려주세요.`);
+  }
 
   const columnIndex = {};
   const missing = [];
@@ -4060,7 +4080,7 @@ document.querySelectorAll("#view-upload .upload-form, #view-sa-upload .upload-fo
       const isSaRawType = rawType.startsWith("sa_");
       let rows = isSaRawType
         ? parseSaRawCsv(text, SA_RAW_TYPE_COLUMNS[rawType], SA_OPTIONAL_COLUMNS[rawType] || [])
-        : parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
+        : parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || [], GFA_MORE_SPECIFIC_COLUMNS[rawType] || []);
       if (rawType === "sa_campaign" || rawType === "sa_keyword") {
         rows = normalizeSaCampaignTypeRows(rows);
       }
@@ -4173,7 +4193,7 @@ async function parseZipEntryForRawForm(form, file) {
   const isSaRawType = rawType.startsWith("sa_");
   let rows = isSaRawType
     ? parseSaRawCsv(text, SA_RAW_TYPE_COLUMNS[rawType], SA_OPTIONAL_COLUMNS[rawType] || [])
-    : parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || []);
+    : parseGfaCsv(text, GFA_RAW_TYPE_COLUMNS[rawType], GFA_OPTIONAL_COLUMNS[rawType] || [], GFA_MORE_SPECIFIC_COLUMNS[rawType] || []);
   if (rawType === "sa_campaign" || rawType === "sa_keyword") {
     rows = normalizeSaCampaignTypeRows(rows);
   }
