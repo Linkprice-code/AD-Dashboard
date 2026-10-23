@@ -534,7 +534,9 @@ async function callSaKeywordPerformanceRaw(body) {
 // 낫다), 한 번 실패한 캠페인은 1번 더 재시도한다(일시적인 부하일 수 있어서).
 // 순서대로 하나씩 부르면 너무 오래 걸려서, 몇 개씩 동시에(CONCURRENCY) 진행한다.
 const SA_KEYWORD_CAMPAIGN_CHUNK_SIZE = 1;
-const SA_KEYWORD_CONCURRENCY = 3;
+// 서버(sa-keyword-performance)도 안에서 네이버 API를 3개씩 동시에 부르므로, 여기까지
+// 3이면 동시 호출이 9개가 되어 네이버 호출 한도(429)에 자주 걸린다.
+const SA_KEYWORD_CONCURRENCY = 2;
 
 async function fetchSaKeywordCampaignWithRetry(campaignType, dateFrom, dateTo, campaignId) {
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -2895,7 +2897,9 @@ async function renderKeywordView(item) {
   }
 
   const token = ++state.overviewRenderToken;
-  const result = await fetchSaKeywordPerformanceAny(item.naverCampaignType, {
+  // 유형 전체를 한 번에 조회하면 캠페인이 많은 계정(문성전자 쇼핑검색 등)은 Edge Function
+  // 시간/자원 한도를 넘겨 끝내 표가 안 뜬다. HTML 보고서처럼 캠페인 1개씩 나눠 조회한다.
+  const result = await fetchSaKeywordPerformanceChunkedAny(item.naverCampaignType, {
     dateFrom: state.analysisPeriod.from,
     dateTo: state.analysisPeriod.to
   });
