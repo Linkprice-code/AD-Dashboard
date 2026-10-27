@@ -203,7 +203,11 @@ function isTokenExpired(token) {
    rawType은 "campaign" / "adgroup" / "adv" 중 하나이며, 각각
    gfa_campaign_raw / gfa_adgroup_raw / gfa_adv_raw 테이블에 대응한다.
 --------------------------------------------------------- */
-async function uploadGfaData(rawType, rows) {
+function uploadGfaData(rawType, rows) {
+  return uploadInDateBatches(rows, GFA_UPLOAD_BATCH_ROWS, (batch) => uploadGfaDataBatch(rawType, batch));
+}
+
+async function uploadGfaDataBatch(rawType, rows) {
   const session = getSession();
   if (!session) {
     return { success: false, message: "세션이 만료되었습니다. 다시 로그인해주세요." };
@@ -333,8 +337,12 @@ async function fetchChannelPerformance(channel, groupBy, { dateFrom, dateTo, adT
 // 들어있는 날짜의 기존 데이터를 지우고 새로 넣는" 방식이라 같은 날짜의 행이 두 요청에
 // 걸치면 앞 요청분이 지워진다 - 반드시 날짜 단위로 묶어서 나눈다.
 const CHANNEL_UPLOAD_BATCH_ROWS = 2000;
+// GFA/SA raw(gfa-upload)도 같은 문제가 있다 - GFA 소재 리포트는 두 달치만 받아도 5천~1만 행이라
+// 한 요청으로 보내면 "not having enough compute resources"로 실패한다 (2026-10-27 확인).
+// 홈앤힐/쉬어 행 분리까지 서버에서 하므로 채널 업로드보다 작게 나눈다.
+const GFA_UPLOAD_BATCH_ROWS = 1000;
 
-async function uploadChannelData(channel, adType, rows) {
+function splitRowsIntoDateBatches(rows, maxRows) {
   const rowsByDate = new Map();
   rows.forEach((row) => {
     if (!rowsByDate.has(row.date)) rowsByDate.set(row.date, []);
@@ -344,18 +352,21 @@ async function uploadChannelData(channel, adType, rows) {
   const batches = [];
   let current = [];
   for (const dateRows of rowsByDate.values()) {
-    if (current.length > 0 && current.length + dateRows.length > CHANNEL_UPLOAD_BATCH_ROWS) {
+    if (current.length > 0 && current.length + dateRows.length > maxRows) {
       batches.push(current);
       current = [];
     }
     current = current.concat(dateRows);
   }
   if (current.length > 0) batches.push(current);
+  return batches;
+}
 
+async function uploadInDateBatches(rows, maxRows, uploadBatch) {
   let inserted = 0;
   const datesReplaced = [];
-  for (const batch of batches) {
-    const result = await uploadChannelDataBatch(channel, adType, batch);
+  for (const batch of splitRowsIntoDateBatches(rows, maxRows)) {
+    const result = await uploadBatch(batch);
     if (!result.success) {
       if (inserted === 0) return result;
       return {
@@ -367,7 +378,11 @@ async function uploadChannelData(channel, adType, rows) {
     datesReplaced.push(...result.dates_replaced);
   }
 
-  return { success: true, inserted, dates_replaced: datesReplaced };
+  return { success: true, inserted, dates_replaced: [...new Set(datesReplaced)] };
+}
+
+function uploadChannelData(channel, adType, rows) {
+  return uploadInDateBatches(rows, CHANNEL_UPLOAD_BATCH_ROWS, (batch) => uploadChannelDataBatch(channel, adType, batch));
 }
 
 async function uploadChannelDataBatch(channel, adType, rows) {
